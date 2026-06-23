@@ -42,26 +42,69 @@ Navegador (React + Vite)  ──JSON──►  BFF (server/, Node sin dependenci
 > Nota: el `<credentials>` de servicio no es obligatorio para estas lecturas; el
 > *login real* sí requiere `OASIS_USER`/`OASIS_PASS`.
 
+## Requisitos
+
+- **Node.js** 18+ (probado con v22/v25)
+- **npm** 9+
+- **PostgreSQL** (opcional — sin BD la app usa `sessionStorage`)
+
 ## Puesta en marcha
 
-### 1. Backend (BFF)
+### 1. Clonar e instalar dependencias
 
 ```bash
-cp server/.env.example server/.env   # y completa OASIS_USER / OASIS_PASS
-npm run server                        # http://localhost:3001
-```
-
-> Sin credenciales, las operaciones de solo lectura (período, facultades)
-> funcionan igual; el inicio de sesión real requiere `OASIS_USER`/`OASIS_PASS`.
-
-### 2. Frontend
-
-```bash
+git clone https://github.com/Jordy-Segura/assistant-grades-.git
+cd assistant-grades-
 npm install
-npm run dev          # http://localhost:5173
 ```
 
-Configura `VITE_API_BASE_URL` si el BFF no está en `http://localhost:3001`.
+### 2. Configurar variables de entorno
+
+Crea `server/.env`:
+
+```bash
+cp server/.env.example server/.env
+```
+
+Edita `server/.env`:
+
+```env
+PORT=3001
+OASIS_BASE=http://swoasis.espoch.edu.ec/OASis/OAS_Interop
+OASIS_USER=                        # vacío → login local (dev)
+OASIS_PASS=
+OASIS_TIMEOUT=20000
+DATABASE_URL=                      # opcional, ver sección BD
+```
+
+> `OASIS_USER` y `OASIS_PASS` vacíos: las operaciones de solo lectura
+> (carreras, malla, nómina, docentes, horarios) funcionan sin auth.
+> El login real requiere credenciales institucionales OASIS.
+
+### 3. Iniciar backend (BFF)
+
+```bash
+npm run server
+# → http://localhost:3001
+# Log: "PostgreSQL: conectado y esquema listo." (o aviso de sessionStorage)
+```
+
+### 4. Iniciar frontend (segunda terminal)
+
+```bash
+npm run dev
+# → http://localhost:5173
+```
+
+### 5. Probar
+
+1. Abre `http://localhost:5173`
+2. Inicia sesión con: `ppaguay@espoch.edu.ec` / `paguay2026`
+3. Ve a **Coordinación → Importar docentes (OASIS)**, selecciona
+   `TECNOLOGIAS DE LA INFORMACION` (ITIO) → verás los docentes reales
+4. Ve a **Estudiantes → Importar de OASIS**, escribe
+   `FUNDAMENTOS DE PROGRAMACION` → se resolverán los códigos automáticamente
+   y se importarán los estudiantes reales de Sede Orellana
 
 ## Base de datos (PostgreSQL en la nube)
 
