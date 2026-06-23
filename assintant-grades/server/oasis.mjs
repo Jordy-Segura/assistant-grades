@@ -504,6 +504,47 @@ export async function getNotas(codCarrera, cedula) {
   }
 }
 
+// Obtener datos completos del estudiante por cédula (GetDatosCompletosEstudiante)
+export async function getDatosEstudiante(cedula) {
+  try {
+    const r = await callSoap("InfoCarrera", "GetDatosCompletosEstudiante", { strCedula: cedula });
+    return {
+      cedula: r.Cedula || cedula,
+      codigo: r.Codigo || r.CodEstudiante || "",
+      apellidos: (r.Apellidos || "").trim(),
+      nombres: (r.Nombres || "").trim(),
+      email: r.Email || "",
+      telefono: r.Telefono || "",
+      direccion: r.Direccion || "",
+      sexo: r.Sexo || "",
+      fechaNacimiento: r.FechaNacimiento || r.FechaNac || "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+// Obtener materias en las que un estudiante está matriculado
+export async function getMateriasEstudiante(codCarrera, cedula, codPeriodo) {
+  try {
+    const r = await callSoap("InfoCarrera", "GetMateriasEstudiante", {
+      CodCarrera: codCarrera,
+      Cedula: cedula,
+      CodPeriodo: codPeriodo,
+    });
+    return asArray(r?.Materia).map((m) => ({
+      codMateria: m.Codigo || "",
+      materia: (m.Nombre || "").trim(),
+      codNivel: m.CodNivel || "",
+      nivel: m.Nivel || "",
+      paralelo: m.Paralelo || "",
+      nota: Number(m.Nota ?? m.Acumulado ?? 0) || 0,
+    }));
+  } catch {
+    return [];
+  }
+}
+
 // ---- Mock data (only used when OASIS is unreachable) ----
 
 const MOCK_PERIODO = { codigo: "P0045", descripcion: "2 MARZO -15 JULIO 2026", fechaInicio: "2026-02-18", fechaFin: "2026-07-18" };

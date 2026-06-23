@@ -69,6 +69,16 @@ export function getNotas({ codCarrera, cedula }) {
   return request("/api/notas", { method: "POST", body: { codCarrera, cedula } });
 }
 
+/** Datos completos del estudiante por cédula (GetDatosCompletosEstudiante). */
+export function getDatosEstudiante({ cedula }) {
+  return request("/api/estudiante", { method: "POST", body: { cedula } });
+}
+
+/** Materias de un estudiante en una carrera/periodo (GetMateriasEstudiante). */
+export function getMateriasEstudiante({ codCarrera, cedula, codPeriodo }) {
+  return request("/api/materias-estudiante", { method: "POST", body: { codCarrera, cedula, codPeriodo } });
+}
+
 /** Catálogo de carreras abiertas (InfoGeneral.asmx). */
 export function getCarreras() {
   return request("/api/carreras");

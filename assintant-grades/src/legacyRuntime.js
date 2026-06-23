@@ -3793,9 +3793,16 @@ export function initLegacyRuntime() {
     btn.textContent = 'Consultando…';
     results.innerHTML = '<div style="font-size:.82rem;color:var(--gray-500);padding:12px">Consultando información del estudiante…</div>';
     try {
+      var estudiante = await oasis.getDatosEstudiante({ cedula: cedula });
+      var nombreEstudiante = (estudiante && estudiante.nombres) ? estudiante.apellidos + ', ' + estudiante.nombres : null;
+
       var carreras = await oasis.getCarreras();
       var infoEncontrada = false;
-      var htmlResultados = '<div style="display:grid;gap:12px">';
+      var htmlResultados = '';
+      if (nombreEstudiante) {
+        htmlResultados += '<div class="card" style="margin-bottom:16px"><div class="card-header"><div class="card-title"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:6px"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> ' + nombreEstudiante + '</div><div style="font-size:.78rem;color:var(--gray-500)">Cédula: ' + cedula + '</div></div></div>';
+      }
+      htmlResultados += '<div style="display:grid;gap:12px">';
       for (var ci = 0; ci < carreras.length; ci++) {
         var c = carreras[ci];
         try {
@@ -3974,6 +3981,13 @@ export function initLegacyRuntime() {
     if (!cedula || cedula.length !== 10) return;
     results.innerHTML = '<div style="font-size:.82rem;color:var(--gray-500);padding:12px">Consultando en todas las carreras…</div>';
     try {
+      var estudiante = await oasis.getDatosEstudiante({ cedula: cedula });
+      var nombreEstudiante = (estudiante && estudiante.nombres) ? estudiante.apellidos + ', ' + estudiante.nombres : null;
+      var headerHtml = '';
+      if (nombreEstudiante) {
+        headerHtml = '<div class="card" style="margin-bottom:16px"><div class="card-header"><div class="card-title"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:6px"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> ' + nombreEstudiante + '</div><div style="font-size:.78rem;color:var(--gray-500)">Cédula: ' + cedula + '</div></div></div>';
+      }
+
       var carreras = await oasis.getCarreras();
       var encontradas = [];
       for (var ci = 0; ci < carreras.length; ci++) {
@@ -3985,7 +3999,7 @@ export function initLegacyRuntime() {
         } catch { /* continuar */ }
       }
       if (encontradas.length === 0) {
-        results.innerHTML = '<div class="card"><div class="card-body" style="text-align:center;padding:24px;font-size:.85rem;color:var(--gray-500)">No se encontraron registros para la cédula <strong>' + cedula + '</strong> en ninguna carrera activa.</div></div>';
+        results.innerHTML = headerHtml + '<div class="card"><div class="card-body" style="text-align:center;padding:24px;font-size:.85rem;color:var(--gray-500)">No se encontraron registros para la cédula <strong>' + cedula + '</strong> en ninguna carrera activa.</div></div>';
         return;
       }
       var html = encontradas.map(function (e) {
@@ -3997,7 +4011,7 @@ export function initLegacyRuntime() {
           }).join('') +
           '</tbody></table></div></div>';
       }).join('');
-      results.innerHTML = html;
+      results.innerHTML = headerHtml + html;
     } catch (err) {
       results.innerHTML = '<div class="card"><div class="card-body" style="text-align:center;padding:24px;font-size:.85rem;color:var(--red)">Error: ' + (err.message || 'Error de conexión') + '</div></div>';
     }

@@ -94,6 +94,10 @@ const routes = {
 
   "POST /api/notas": (body) => oasis.getNotas(body.codCarrera, body.cedula),
 
+  "POST /api/estudiante": (body) => oasis.getDatosEstudiante(body.cedula),
+
+  "POST /api/materias-estudiante": (body) => oasis.getMateriasEstudiante(body.codCarrera, body.cedula, body.codPeriodo),
+
   // ---- Persistencia en PostgreSQL (datos propios de la app) ----
   "GET /api/db/health": () => db.health(),
 
