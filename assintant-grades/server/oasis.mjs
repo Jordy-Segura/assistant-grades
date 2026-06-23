@@ -94,6 +94,13 @@ async function callSoap(service, op, params = {}) {
   return soapBody?.[op + "Response"]?.[op + "Result"] ?? null;
 }
 
+// OASIS requiere cedula con guion (220023003-1). Convierte 10 digitos -> formato con guion.
+function formatearCedula(ced) {
+  const digits = String(ced || "").replace(/\D/g, "");
+  if (digits.length === 10) return digits.slice(0, 9) + "-" + digits.slice(9);
+  return ced;
+}
+
 export async function getPeriodoActual() {
   try {
     const r = (await callSoap("InfoGeneral", "GetPeriodoActual")) || {};
@@ -179,7 +186,7 @@ export async function getMateriasDocente(codCarrera, cedula, codPeriodo) {
   try {
     const r = await callSoap("InfoCarrera", "GetMateriasDocente", {
       CodCarrera: codCarrera,
-      Cedula: cedula,
+      Cedula: formatearCedula(cedula),
       CodPeriodo: codPeriodo,
     });
     return asArray(r?.Materia).map((m) => ({ codigo: m.Codigo || "", nombre: m.Nombre || "" }));
@@ -457,7 +464,7 @@ export async function getHorarioDocente({ codCarrera, carrera, facultad, cedula,
     const periodo = codPeriodo || (await getPeriodoActual()).codigo;
     const r = await callSoap("InfoCarrera", "GetHorariosDocente", {
       strCodCarrera: cod,
-      strCedula: cedula,
+      strCedula: formatearCedula(cedula),
       strCodPeriodo: periodo,
     });
     const clases = asArray(r?.HorarioClase).map((h) => ({
@@ -487,7 +494,7 @@ export async function getNotas(codCarrera, cedula) {
   try {
     const r = await callSoap("InfoCarrera", "GetUltimasNotasEstudianteCarrera", {
       strCodCarrera: codCarrera,
-      strCedula: cedula,
+      strCedula: formatearCedula(cedula),
     });
     return asArray(r?.Notas).map((n) => ({
       codMateria: n.CodMateria || "",
@@ -507,7 +514,7 @@ export async function getNotas(codCarrera, cedula) {
 // Obtener datos completos del estudiante por cédula (GetDatosCompletosEstudiante)
 export async function getDatosEstudiante(cedula) {
   try {
-    const r = await callSoap("InfoCarrera", "GetDatosCompletosEstudiante", { strCedula: cedula });
+    const r = await callSoap("InfoCarrera", "GetDatosCompletosEstudiante", { strCedula: formatearCedula(cedula) });
     return {
       cedula: r.Cedula || cedula,
       codigo: r.Codigo || r.CodEstudiante || "",
@@ -529,7 +536,7 @@ export async function getMateriasEstudiante(codCarrera, cedula, codPeriodo) {
   try {
     const r = await callSoap("InfoCarrera", "GetMateriasEstudiante", {
       CodCarrera: codCarrera,
-      Cedula: cedula,
+      Cedula: formatearCedula(cedula),
       CodPeriodo: codPeriodo,
     });
     return asArray(r?.Materia).map((m) => ({
