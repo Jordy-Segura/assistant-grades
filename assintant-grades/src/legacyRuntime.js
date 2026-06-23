@@ -3667,7 +3667,7 @@ export function initLegacyRuntime() {
       '<div class="card"><div class="card-header"><div class="card-title">Período Académico Actual</div></div><div class="card-body" id="cinfo-periodo"><div style="font-size:.82rem;color:var(--gray-500)">Cargando…</div></div></div>' +
       '<div class="card"><div class="card-header"><div class="card-title">Estado del Sistema</div></div><div class="card-body" id="cinfo-sistema"><div style="font-size:.82rem;color:var(--gray-500)">Cargando…</div></div></div>' +
       '</div>' +
-      '<div class="card"><div class="card-header"><div class="card-title">Carreras Activas</div><button class="btn btn-sm btn-edit" onclick="cinfoLoadCarreras()"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:4px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> Recargar</button></div><div class="card-body" id="cinfo-carreras"><div style="font-size:.82rem;color:var(--gray-500)">Cargando…</div></div></div>';
+      '<div class="card"><div class="card-header"><div class="card-title">Carreras Activas</div><div style="display:flex;gap:8px;align-items:center"><input class="form-input" id="cinfo-filtro" placeholder="Filtrar carreras…" oninput="cinfoFiltrar()" style="width:200px;padding:4px 8px;font-size:.78rem"><button class="btn btn-sm btn-edit" onclick="cinfoLoadCarreras()"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:4px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> Recargar</button></div></div><div class="card-body" id="cinfo-carreras"><div style="font-size:.82rem;color:var(--gray-500)">Cargando…</div></div></div>';
     cinfoLoadPeriodo();
     cinfoLoadSistema();
     cinfoLoadCarreras();
@@ -3714,23 +3714,43 @@ export function initLegacyRuntime() {
     }
   }
 
+  var _cinfoCarreras = [];
+
+  function cinfoRenderCarreras(filtro) {
+    var el = document.getElementById('cinfo-carreras');
+    if (!el) return;
+    var f = (filtro || '').toLowerCase();
+    var list = f ? _cinfoCarreras.filter(function (c) { return c.nombre.toLowerCase().includes(f) || c.codigo.toLowerCase().includes(f); }) : _cinfoCarreras;
+    if (!list.length) {
+      el.innerHTML = '<div style="font-size:.82rem;color:var(--gray-500);padding:12px;text-align:center">' + (f ? 'No hay carreras que coincidan con "' + f + '".' : 'Sin carreras activas.') + '</div>';
+      return;
+    }
+    el.innerHTML = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px">' +
+      list.map(function (c) {
+        return '<div style="padding:10px 12px;border:1px solid var(--gray-200);border-radius:8px;font-size:.8rem">' +
+          '<div style="font-weight:600;color:var(--gray-800)">' + c.nombre + '</div>' +
+          '<div style="font-size:.7rem;color:var(--gray-400);margin-top:2px">Código: ' + c.codigo + '</div>' +
+          '</div>';
+      }).join('') + '<div style="font-size:.72rem;color:var(--gray-400);padding:4px;text-align:right">' + list.length + ' carreras</div></div>';
+  }
+
+  function cinfoFiltrar() {
+    var input = document.getElementById('cinfo-filtro');
+    cinfoRenderCarreras(input ? input.value : '');
+  }
+
   async function cinfoLoadCarreras() {
     var el = document.getElementById('cinfo-carreras');
     if (!el) return;
     el.innerHTML = '<div style="font-size:.82rem;color:var(--gray-500)">Consultando OASIS…</div>';
     try {
-      var carreras = await oasis.getCarreras();
-      if (!carreras || !carreras.length) {
+      _cinfoCarreras = await oasis.getCarreras();
+      if (!_cinfoCarreras || !_cinfoCarreras.length) {
+        _cinfoCarreras = [];
         el.innerHTML = '<div style="font-size:.82rem;color:var(--gray-500)">Sin carreras activas.</div>';
         return;
       }
-      el.innerHTML = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px">' +
-        carreras.map(function (c) {
-          return '<div style="padding:10px 12px;border:1px solid var(--gray-200);border-radius:8px;font-size:.8rem">' +
-            '<div style="font-weight:600;color:var(--gray-800)">' + c.nombre + '</div>' +
-            '<div style="font-size:.7rem;color:var(--gray-400);margin-top:2px">Código: ' + c.codigo + '</div>' +
-            '</div>';
-        }).join('') + '</div>';
+      cinfoFiltrar();
     } catch (err) {
       el.innerHTML = '<div style="font-size:.82rem;color:var(--red)">Error: ' + (err.message || '') + '</div>';
     }
@@ -4067,6 +4087,7 @@ export function initLegacyRuntime() {
   window.ccedSearchNotas = ccedSearchNotas;
   window.ccedSearchHorario = ccedSearchHorario;
   window.cinfoLoadCarreras = cinfoLoadCarreras;
+  window.cinfoFiltrar = cinfoFiltrar;
 
   function renderPage(page) {
     if (page === 'dashboard') renderDashboard();
