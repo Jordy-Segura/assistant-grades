@@ -1,6 +1,14 @@
 // Capa de datos Supabase (nuevo esquema de 8 tablas)
 import { createClient } from "@supabase/supabase-js";
-import { scryptSync, randomBytes, timingSafeEqual } from "node:crypto";
+import { scryptSync, randomBytes, timingSafeEqual, createHash } from "node:crypto";
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function ensureUuid(str) {
+  if (!str) return randomBytes(16).toString("hex").replace(/(.{8})(.{4})(.{4})(.{4})(.{12})/, "$1-$2-$3-$4-$5");
+  if (UUID_RE.test(str)) return str;
+  const hash = createHash("md5").update(String(str)).digest("hex");
+  return hash.slice(0, 8) + "-" + hash.slice(8, 12) + "-" + hash.slice(12, 16) + "-" + hash.slice(16, 20) + "-" + hash.slice(20, 32);
+}
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "";
 const SUPABASE_KEY = process.env.SUPABASE_KEY || "";
@@ -270,6 +278,16 @@ export async function putStore(payload = {}) {
   const role = payload.role || "";
   const errors = [];
 
+  // Construir mapa de IDs originales → UUIDs para asignaciones y configs
+  const asgIdMap = new Map();
+  for (const a of payload.teacherAssignments || []) {
+    asgIdMap.set(a.id, ensureUuid(a.id));
+  }
+  const cfgIdMap = new Map();
+  for (const c of payload.savedConfigs || []) {
+    cfgIdMap.set(c.id, ensureUuid(c.id));
+  }
+
   // 1. Docentes (solo coordinador)
   if (role === "coordinador" && Array.isArray(payload.docentes)) {
     for (const d of payload.docentes) {
@@ -291,7 +309,7 @@ export async function putStore(payload = {}) {
     const existingIds = new Set((existing || []).map((a) => a.id));
     const keepIds = new Set();
     for (const a of payload.teacherAssignments) {
-      const id = a.id || crypto.randomUUID();
+      const id = asgIdMap.get(a.id) || ensureUuid(a.id);
       keepIds.add(id);
       const { error } = await supabase.from("asignaciones").upsert({
         id,
@@ -300,7 +318,7 @@ export async function putStore(payload = {}) {
         asignatura: a.asignatura || "",
         pao: String(a.pao || ""),
         paralelo: String(a.paralelo || ""),
-        data: a,
+        data: { ...a, id },
       }, { onConflict: "id" });
       if (error) errors.push(`asignacion ${id}: ${error.message}`);
     }
@@ -316,9 +334,20 @@ export async function putStore(payload = {}) {
     const keepCfgIds = new Set();
 
     for (const c of payload.savedConfigs) {
-      const id = c.id || crypto.randomUUID();
+      const id = cfgIdMap.get(c.id) || ensureUuid(c.id);
       keepCfgIds.add(id);
       const cc = c.courseConfig || {};
+      // Convertir IDs de actividades dentro de la config a UUIDs
+      // Convertir IDs internos (actividades, raau entries) a UUIDs
+      // NOTA: selectedRACIds, racId, raauId son codigos tipo R1, RA1, U1 — NO convertir
+      const activities = (c.activities || []).map((act) => ({
+        ...act,
+        id: ensureUuid(act.id),
+      }));
+      const raauEntries = (c.raauEntries || []).map((r) => ({
+        ...r,
+        id: ensureUuid(r.id),
+      }));
       const { error } = await supabase.from("configuraciones_pao").upsert({
         id,
         owner_email: c.ownerEmail || email,
@@ -331,8 +360,8 @@ export async function putStore(payload = {}) {
           ownerEmail: c.ownerEmail || email,
           courseConfig: cc,
           selectedRACIds: c.selectedRACIds || [],
-          raauEntries: c.raauEntries || [],
-          activities: c.activities || [],
+          raauEntries,
+          activities,
         },
       }, { onConflict: "id" });
       if (error) errors.push(`config ${id}: ${error.message}`);
@@ -340,12 +369,18 @@ export async function putStore(payload = {}) {
 
     // 4. Estudiantes
     if (payload.studentsByConfig && typeof payload.studentsByConfig === "object") {
-      for (const [configId, arr] of Object.entries(payload.studentsByConfig)) {
-        if (!keepCfgIds.has(configId)) continue;
-        await supabase.from("estudiantes_configuracion").delete().eq("config_id", configId);
+      // Construir mapa de IDs original → UUID para estudiantes tambien
+      const origToUuid = {};
+      for (const [origCfgId] of Object.entries(payload.studentsByConfig)) {
+        origToUuid[origCfgId] = ensureUuid(origCfgId);
+      }
+      for (const [origCfgId, arr] of Object.entries(payload.studentsByConfig)) {
+        const cfgUuid = origToUuid[origCfgId];
+        if (!keepCfgIds.has(cfgUuid)) continue;
+        await supabase.from("estudiantes_configuracion").delete().eq("config_id", cfgUuid);
         if (Array.isArray(arr) && arr.length > 0) {
           const rows = arr.map((s) => ({
-            config_id: configId,
+            config_id: cfgUuid,
             cedula: s.cedula || "",
             codigo_estudiante: s.codigo || "",
             nombres: [s.nombres || "", s.apellidos || ""].filter(Boolean).join(" "),
@@ -353,19 +388,19 @@ export async function putStore(payload = {}) {
             data_minima: s,
           }));
           const { error } = await supabase.from("estudiantes_configuracion").insert(rows);
-          if (error) errors.push(`estudiantes ${configId}: ${error.message}`);
+          if (error) errors.push(`estudiantes ${cfgUuid}: ${error.message}`);
         }
       }
     }
 
     // 5. Notas (array de {studentId, activityId, score})
     if (payload.gradesByConfig && typeof payload.gradesByConfig === "object") {
-      for (const [configId, arr] of Object.entries(payload.gradesByConfig)) {
-        if (!keepCfgIds.has(configId)) continue;
+      for (const [origCfgId, arr] of Object.entries(payload.gradesByConfig)) {
+        const cfgUuid = ensureUuid(origCfgId);
+        if (!keepCfgIds.has(cfgUuid)) continue;
         if (!Array.isArray(arr) || arr.length === 0) continue;
-        await supabase.from("notas_estudiantes").delete().eq("config_id", configId);
-        // Obtener estudiante_id → cedula mapping
-        const { data: ests } = await supabase.from("estudiantes_configuracion").select("id,cedula").eq("config_id", configId);
+        await supabase.from("notas_estudiantes").delete().eq("config_id", cfgUuid);
+        const { data: ests } = await supabase.from("estudiantes_configuracion").select("id,cedula").eq("config_id", cfgUuid);
         const estByCedula = {};
         const estById = {};
         if (ests) {
@@ -375,15 +410,15 @@ export async function putStore(payload = {}) {
           });
         }
         const rows = arr.map((g) => ({
-          config_id: configId,
+          config_id: cfgUuid,
           estudiante_id: estById[g.studentId] || estByCedula[g.studentId] || null,
           estudiante_cedula: g.studentId,
-          actividad_id: g.activityId,
+          actividad_id: ensureUuid(g.activityId),
           nota: g.score != null ? Number(g.score) : null,
         })).filter((r) => r.nota != null);
         if (rows.length > 0) {
           const { error } = await supabase.from("notas_estudiantes").insert(rows);
-          if (error) errors.push(`notas ${configId}: ${error.message}`);
+          if (error) errors.push(`notas ${cfgUuid}: ${error.message}`);
         }
       }
     }
