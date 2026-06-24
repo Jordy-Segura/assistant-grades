@@ -1,4 +1,5 @@
-﻿import useLegacyRuntime from "./hooks/useLegacyRuntime";
+import { useCallback, useEffect, useState } from "react";
+import useLegacyRuntime from "./hooks/useLegacyRuntime";
 import AuthScreen from "./components/AuthScreen";
 import Sidebar from "./components/Sidebar";
 import Pages from "./components/Pages";
@@ -6,12 +7,46 @@ import "./App.css";
 
 export default function App() {
   useLegacyRuntime();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  const closeSidebar = useCallback(() => {
+    setSidebarOpen(false);
+  }, []);
+
+  const toggleSidebar = useCallback((event) => {
+    if (event) event.stopPropagation();
+    setSidebarOpen((open) => !open);
+  }, []);
+
+  useEffect(() => {
+    window.__closeSidebar = closeSidebar;
+    return () => {
+      delete window.__closeSidebar;
+    };
+  }, [closeSidebar]);
+
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") closeSidebar();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [closeSidebar]);
 
   return (
     <>
       <AuthScreen />
-      <div id="app-shell">
-        <Sidebar />
+      <div id="app-shell" className={sidebarOpen ? "sidebar-open" : ""} onClick={closeSidebar}>
+        <div className="mobile-topbar" onClick={(event) => event.stopPropagation()}>
+          <button className="hamburger-btn" onClick={toggleSidebar} aria-label="Abrir menu">
+            <span className="hamburger-line"></span>
+            <span className="hamburger-line"></span>
+            <span className="hamburger-line"></span>
+          </button>
+          <img src="/escudo_espoch.png" alt="ESPOCH" className="topbar-logo" />
+          <span className="topbar-title">ESPOCH - Calificaciones</span>
+        </div>
+        <Sidebar onNavClick={closeSidebar} />
         <Pages />
       </div>
 

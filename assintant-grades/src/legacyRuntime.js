@@ -605,6 +605,7 @@ export function initLegacyRuntime() {
   }
 
   function selectPaoFromDropdown(configId, event) {
+    if (typeof window.__closeSidebar === 'function') window.__closeSidebar();
     if (event) event.stopPropagation();
     closePaoDropdown();
     if (configId === STATE.activeConfigId) return;
@@ -635,7 +636,7 @@ export function initLegacyRuntime() {
     var role = STATE.currentUser && STATE.currentUser.role;
     if (!role) return false;
     if (page.indexOf('coord-') === 0) return role === 'coordinador' || role === 'admin';
-    if (page.indexOf('consulta-') === 0) return role === 'coordinador' || role === 'admin';
+    if (page.indexOf('consulta-') === 0) return true;
     if (role === 'docente') return page !== 'coordinacion';
     return true;
   }
@@ -656,7 +657,7 @@ export function initLegacyRuntime() {
     var coordItems = ['nav-coord-asig', 'nav-coord-rac', 'nav-coord-raau', 'nav-coord-docentes'];
     coordItems.forEach(function (id) {
       var item = document.getElementById(id);
-      if (item) item.style.display = (role === 'coordinador' || role === 'admin') ? '' : 'none';
+      if (item) item.style.display = '';
     });
     var consultaItems = ['nav-consulta-divider', 'nav-consulta-section',
       'nav-consulta-sede', 'nav-consulta-info', 'nav-consulta-est'];
@@ -2186,7 +2187,7 @@ export function initLegacyRuntime() {
         canvas.style.height = '240px';
         container.parentNode.appendChild(canvas);
         container.remove();
-        QRCode.toCanvas(canvas, text, { width: 240, margin: 1, errorCorrectionLevel: 'L', color: { dark: '#1a1a2e', light: '#ffffff' } }, function (err) {
+        window.QRCode.toCanvas(canvas, text, { width: 240, margin: 1, errorCorrectionLevel: 'L', color: { dark: '#1a1a2e', light: '#ffffff' } }, function (err) {
           if (err) {
             canvas.parentNode.innerHTML = '<img src="https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=' + encodeURIComponent(text) + '" alt="QR" style="max-width:250px;border-radius:8px" />';
           }
@@ -2214,6 +2215,263 @@ export function initLegacyRuntime() {
   function escapeHtml(str) {
     return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
+
+  function fileSlug(str) {
+    return String(str || 'reporte')
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .toLowerCase() || 'reporte';
+  }
+
+  function downloadTextFile(filename, content, mime) {
+    var blob = new Blob([content], { type: mime || 'text/plain;charset=utf-8' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    URL.revokeObjectURL(a.href);
+    a.remove();
+  }
+
+  function requireExportData() {
+    if (!STATE.activeConfigId) {
+      showToast('Seleccione un PAO desde MIS PAOs.', 'error');
+      return false;
+    }
+    if (!STATE.students || STATE.students.length === 0) {
+      showToast('No hay estudiantes registrados.', 'error');
+      return false;
+    }
+    if (!STATE.activities || STATE.activities.length === 0) {
+      showToast('No hay actividades configuradas.', 'error');
+      return false;
+    }
+    return true;
+  }
+
+  function buildGradesExportPayload(kind) {
+    syncActivitiesWithRAAU();
+    var c = STATE.courseConfig || {};
+    var activities = (STATE.activities || []).map(function (a) {
+      return {
+        id: a.id,
+        component: a.component,
+        name: a.name,
+        maxScore: Number(a.maxScore) || 0,
+        procedure: a.procedure || '',
+        racId: a.racId || '',
+        raauId: a.raauId || ''
+      };
+    });
+    var totalMax = activities.reduce(function (sum, a) { return sum + (Number(a.maxScore) || 0); }, 0);
+    var students = (STATE.students || []).map(function (s, idx) {
+      var grades = activities.map(function (act) {
+        var score = getGrade(s.id, act.id);
+        return { activityId: act.id, score: score };
+      });
+      var total = studentTotal(s.id);
+      return {
+        index: idx + 1,
+        id: s.id,
+        codigo: s.codigo || '',
+        cedula: formatCedula(s.cedula),
+        apellidos: s.apellidos || '',
+        nombres: s.nombres || '',
+        grades: grades,
+        total: total,
+        estado: total >= 7 ? 'APROBADO' : 'REPROBADO'
+      };
+    });
+    return {
+      kind: kind || 'grades',
+      generatedAt: new Date().toISOString(),
+      meta: {
+        periodoAcademico: c.periodoAcademico || '',
+        facultad: c.facultad || 'SEDE ORELLANA',
+        carrera: c.carrera || '',
+        asignatura: c.asignatura || '',
+        docente: c.docente || ((STATE.currentUser && STATE.currentUser.name) || ''),
+        pao: c.pao || '',
+        aporte: c.aporte || '',
+        totalMax: totalMax
+      },
+      activities: activities,
+      students: students
+    };
+  }
+
+  function excelXmlCell(value, type, formula) {
+    var numeric = type === 'Number' && value !== '' && value != null && !isNaN(Number(value));
+    var attrs = formula ? ' ss:Formula="' + formula + '"' : '';
+    return '<Cell' + attrs + '><Data ss:Type="' + (numeric ? 'Number' : 'String') + '">' +
+      escapeHtml(numeric ? Number(value).toFixed(2) : value) + '</Data></Cell>';
+  }
+
+  function buildGradesExcelXml(payload) {
+    var activities = payload.activities || [];
+    var headers = ['No.', 'Codigo', 'Cedula', 'Apellidos', 'Nombres']
+      .concat(activities.map(function (a) { return a.component + ' - ' + a.name + ' /' + a.maxScore; }))
+      .concat(['Sumatoria', 'Nota final']);
+    var rows = '<Row>' + headers.map(function (h) { return excelXmlCell(h, 'String'); }).join('') + '</Row>';
+    (payload.students || []).forEach(function (s, idx) {
+      rows += '<Row>' +
+        excelXmlCell(idx + 1, 'Number') +
+        excelXmlCell(s.codigo || '', 'String') +
+        excelXmlCell(s.cedula || '', 'String') +
+        excelXmlCell(s.apellidos || '', 'String') +
+        excelXmlCell(s.nombres || '', 'String') +
+        activities.map(function (act) {
+          var g = (s.grades || []).find(function (x) { return x.activityId === act.id; });
+          return excelXmlCell(g && g.score != null ? g.score : '', g && g.score != null ? 'Number' : 'String');
+        }).join('') +
+        excelXmlCell(s.total || 0, 'Number', '=SUM(RC[-' + activities.length + ']:RC[-1])') +
+        excelXmlCell(s.total || 0, 'Number', '=RC[-1]') +
+        '</Row>';
+    });
+    return '<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?>' +
+      '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">' +
+      '<DocumentProperties xmlns="urn:schemas-microsoft-com:office:office"><Title>Calificaciones</Title></DocumentProperties>' +
+      '<Worksheet ss:Name="Calificaciones"><Table>' + rows + '</Table></Worksheet></Workbook>';
+  }
+
+  function exportPayloadExcel(kind) {
+    if (!requireExportData()) return;
+    var payload = buildGradesExportPayload(kind || 'grades');
+    var name = fileSlug([payload.meta.asignatura, payload.meta.aporte, 'calificaciones'].filter(Boolean).join('_'));
+    downloadTextFile(name + '.xls', buildGradesExcelXml(payload), 'application/vnd.ms-excel;charset=utf-8');
+    showToast('Excel generado con formulas.', 'success');
+  }
+
+  function loadScriptOnce(src) {
+    return new Promise(function (resolve, reject) {
+      var existing = document.querySelector('script[src="' + src + '"]');
+      if (existing) return resolve();
+      var script = document.createElement('script');
+      script.src = src;
+      script.onload = resolve;
+      script.onerror = reject;
+      document.head.appendChild(script);
+    });
+  }
+
+  async function ensurePdfLibraries() {
+    if (window.jspdf && window.jspdf.jsPDF && window.jspdf.jsPDF.API && window.jspdf.jsPDF.API.autoTable) return;
+    await loadScriptOnce('https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js');
+    await loadScriptOnce('https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.4/dist/jspdf.plugin.autotable.min.js');
+  }
+
+  async function exportPayloadPDF(kind) {
+    if (!requireExportData()) return;
+    var payload = buildGradesExportPayload(kind || 'grades');
+    try {
+      await ensurePdfLibraries();
+      var jsPDF = window.jspdf.jsPDF;
+      var doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+      var meta = payload.meta || {};
+      var activities = payload.activities || [];
+      var head = [['No.', 'Codigo', 'Cedula', 'Apellidos', 'Nombres'].concat(activities.map(function (a) { return a.name; }), ['Nota'])];
+      var body = (payload.students || []).map(function (s, idx) {
+        return [idx + 1, s.codigo || '', s.cedula || '', s.apellidos || '', s.nombres || '']
+          .concat(activities.map(function (act) {
+            var g = (s.grades || []).find(function (x) { return x.activityId === act.id; });
+            return g && g.score != null ? Number(g.score).toFixed(2) : '-';
+          }), [Number(s.total || 0).toFixed(2)]);
+      });
+      doc.setFontSize(13);
+      doc.text(kind === 'report' ? 'Reporte Final de Calificaciones' : 'Registro de Calificaciones', 40, 34);
+      doc.setFontSize(9);
+      doc.text([meta.asignatura, meta.carrera, 'PAO ' + (meta.pao || ''), meta.aporte, meta.periodoAcademico].filter(Boolean).join(' - '), 40, 50);
+      doc.text('Docente: ' + (meta.docente || '-') + ' | Estudiantes: ' + body.length, 40, 64);
+      doc.autoTable({
+        head: head,
+        body: body,
+        startY: 78,
+        styles: { fontSize: 7, cellPadding: 3, overflow: 'linebreak' },
+        headStyles: { fillColor: [204, 0, 0] },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        margin: { left: 24, right: 24 }
+      });
+      var name = fileSlug([meta.asignatura, meta.aporte, kind || 'calificaciones'].filter(Boolean).join('_'));
+      doc.save(name + '.pdf');
+      showToast('PDF generado.', 'success');
+    } catch (err) {
+      showToast('No se pudo generar PDF automatico. Revise la conexion a internet para cargar la libreria PDF.', 'error');
+    }
+  }
+
+  function renderQrCanvas(text) {
+    var container = document.getElementById('qr-spinner');
+    if (!container) return;
+    container.innerHTML = '';
+    var canvas = document.createElement('canvas');
+    canvas.style.width = '240px';
+    canvas.style.height = '240px';
+    container.parentNode.appendChild(canvas);
+    container.remove();
+    window.QRCode.toCanvas(canvas, text, {
+      width: 240,
+      margin: 1,
+      errorCorrectionLevel: 'M',
+      color: { dark: '#1a1a2e', light: '#ffffff' }
+    }, function (err) {
+      if (err) {
+        canvas.parentNode.innerHTML = '<img src="https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=' +
+          encodeURIComponent(text) + '" alt="QR" style="max-width:260px;border-radius:8px" />';
+      }
+    });
+  }
+
+  async function showExportQR(kind) {
+    if (!requireExportData()) return;
+    var payload = buildGradesExportPayload(kind || 'grades');
+    var exportUrl = '';
+    var modalBody =
+      '<div style="text-align:center;padding:10px">' +
+      '<div id="qr-code-container" style="display:inline-block;background:#fff;padding:10px;border-radius:8px;margin-bottom:10px;border:1px solid var(--gray-200)">' +
+      '<div id="qr-spinner" style="padding:40px;color:var(--gray-400)">Preparando enlace de descarga...</div>' +
+      '</div>' +
+      '<p style="font-size:.78rem;color:var(--gray-600);margin:0">Escanee el QR para abrir una pagina de descarga con Excel con formulas y PDF.</p>' +
+      '<p style="font-size:.7rem;color:var(--gray-400);margin-top:6px">' + escapeHtml(payload.meta.asignatura || '') + ' - ' + escapeHtml(payload.meta.carrera || '') + ' - ' + new Date().toLocaleString() + '</p>' +
+      '<div id="qr-link-info" style="font-size:.7rem;color:var(--gray-500);margin-top:8px;word-break:break-all"></div>' +
+      '</div>';
+    window.__openQrExport = function () {
+      if (exportUrl) window.open(exportUrl, '_blank', 'noopener');
+      else showToast('El enlace de descarga aun no esta listo.', 'error');
+    };
+    openModal((kind === 'report' ? 'QR Reporte Final' : 'QR Calificaciones'), modalBody, [
+      { label: 'Abrir descarga', cls: 'btn-edit', action: function () { window.__openQrExport(); } },
+      { label: 'Cerrar', cls: 'btn-primary', action: 'close' }
+    ]);
+    try {
+      var res = await oasis.createExportPage(payload);
+      exportUrl = (res && res.pageUrl) || '';
+      if (!exportUrl) throw new Error('Sin URL de descarga.');
+      var info = document.getElementById('qr-link-info');
+      if (info) info.textContent = exportUrl;
+      if (window.QRCode) renderQrCanvas(exportUrl);
+      else {
+        var script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js';
+        script.onload = function () { renderQrCanvas(exportUrl); };
+        script.onerror = function () {
+          var sp = document.getElementById('qr-spinner');
+          if (sp) sp.parentNode.innerHTML = '<img src="https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=' + encodeURIComponent(exportUrl) + '" alt="QR" style="max-width:260px;border-radius:8px" />';
+        };
+        document.head.appendChild(script);
+      }
+    } catch (err) {
+      var sp = document.getElementById('qr-spinner');
+      if (sp) sp.textContent = 'No se pudo crear el enlace QR. Verifique que el BFF este ejecutandose.';
+      showToast('No se pudo crear el enlace QR de descarga.', 'error');
+    }
+  }
+
+  function exportGradesExcel() { exportPayloadExcel('grades'); }
+  function exportReportExcel() { exportPayloadExcel('report'); }
+  function exportReportPDF() { exportPayloadPDF('report'); }
+  function showReportQR() { showExportQR('report'); }
 
   // Agrega estudiantes evitando duplicados por cédula. Devuelve cuántos se agregaron.
   function mergeStudents(alumnos) {
@@ -2295,7 +2553,7 @@ export function initLegacyRuntime() {
         });
         r = { materia: c.asignatura, nivel: c.codNivel, paralelo: c.codParalelo, periodo: c.periodoAcademico || codPeriodo };
       } else {
-        var res = await oasis.importarNomina({ carrera: c.carrera, asignatura: c.asignatura, facultad: c.facultad, docente: c.docente, codCarrera: c.codCarrera || '' });
+        var res = await oasis.importarNomina({ carrera: c.carrera, asignatura: c.asignatura, facultad: c.facultad, docente: c.docente, codCarrera: c.codCarrera || '', paralelo: c.codParalelo || c.paralelo || '' });
         alumnos = (res && res.estudiantes) || [];
         r = (res && res.resuelto) || {};
         saveCodesToConfigs(r);
@@ -2521,7 +2779,7 @@ export function initLegacyRuntime() {
           codPeriodo: codPeriodo, codMateria: c.codMateria
         });
       } else {
-        var res = await oasis.importarNomina({ carrera: c.carrera, asignatura: c.asignatura, facultad: c.facultad, docente: c.docente, codCarrera: c.codCarrera || '' });
+        var res = await oasis.importarNomina({ carrera: c.carrera, asignatura: c.asignatura, facultad: c.facultad, docente: c.docente, codCarrera: c.codCarrera || '', paralelo: c.codParalelo || c.paralelo || '' });
         alumnos = (res && res.estudiantes) || [];
         r = (res && res.resuelto) || {};
         if (r.codCarrera) { c.codCarrera = r.codCarrera; if (paoId === STATE.activeConfigId) STATE.courseConfig.codCarrera = r.codCarrera; }
@@ -2665,6 +2923,43 @@ export function initLegacyRuntime() {
     reportNav.dataset.locked = '0';
   }
 
+  function updateGradeProgress() {
+    var activities = STATE.activities || [];
+    var totalExpected = (STATE.students || []).length * activities.length;
+    var totalEntered = 0;
+    (STATE.students || []).forEach(function (student) {
+      activities.forEach(function (act) {
+        var grade = getGrade(student.id, act.id);
+        if (grade != null) totalEntered++;
+      });
+    });
+    var progressPct = pct(totalEntered, totalExpected);
+    var label = document.getElementById('cal-progress-label');
+    var fill = document.getElementById('cal-progress-fill');
+    var pctEl = document.getElementById('cal-progress-pct');
+    if (label) label.textContent = totalEntered + '/' + totalExpected + ' notas';
+    if (fill) {
+      fill.style.width = Math.min(progressPct, 100) + '%';
+      fill.style.background = progressPct < 40 ? 'var(--red)' : (progressPct < 80 ? 'var(--amber)' : 'var(--green)');
+    }
+    if (pctEl) pctEl.textContent = Math.min(progressPct, 100) + '%';
+  }
+
+  function refreshGradeRowTotals(sid) {
+    var tot = studentTotal(sid);
+    document.querySelectorAll('[data-total-sid]').forEach(function (el) {
+      if (el.dataset.totalSid === sid) el.value = fmt(tot);
+    });
+    document.querySelectorAll('[data-final-sid]').forEach(function (el) {
+      if (el.dataset.finalSid !== sid) return;
+      el.value = fmt(tot);
+      el.classList.toggle('pass', tot >= 7);
+      el.classList.toggle('fail', tot < 7);
+    });
+    updateGradeProgress();
+    updateReportAvailability();
+  }
+
   function renderGradeTable() {
     syncActivitiesWithRAAU();
     var query = (document.getElementById('cal-search') ? document.getElementById('cal-search').value : '').toLowerCase();
@@ -2684,19 +2979,7 @@ export function initLegacyRuntime() {
       updateReportAvailability();
       return;
     }
-    var totalExpected = STATE.students.length * activities.length;
-    var totalEntered = 0;
-    STATE.students.forEach(function (student) {
-      activities.forEach(function (act) {
-        var grade = getGrade(student.id, act.id);
-        if (grade != null) totalEntered++;
-      });
-    });
-    var progressPct = pct(totalEntered, totalExpected);
-    document.getElementById('cal-progress-label').textContent = totalEntered + '/' + totalExpected + ' notas';
-    document.getElementById('cal-progress-fill').style.width = Math.min(progressPct, 100) + '%';
-    document.getElementById('cal-progress-fill').style.background = progressPct < 40 ? 'var(--red)' : (progressPct < 80 ? 'var(--amber)' : 'var(--green)');
-    document.getElementById('cal-progress-pct').textContent = Math.min(progressPct, 100) + '%';
+    updateGradeProgress();
 
     var grouped = COMPONENTS.map(function (comp) {
       return { comp: comp, acts: activities.filter(function (a) { return a.component === comp; }) };
@@ -2752,8 +3035,8 @@ export function initLegacyRuntime() {
         });
       });
 
-      html += '<td><input class="grade-readonly" type="text" readonly value="' + fmt(tot) + '" title="Suma total"></td>';
-      html += '<td><input class="grade-total-input ' + (passed ? 'pass' : 'fail') + '" type="text" readonly value="' + fmt(tot) + '" title="Nota Final"></td>';
+      html += '<td><input class="grade-readonly" data-total-sid="' + student.id + '" type="text" readonly value="' + fmt(tot) + '" title="Suma total"></td>';
+      html += '<td><input class="grade-total-input ' + (passed ? 'pass' : 'fail') + '" data-final-sid="' + student.id + '" type="text" readonly value="' + fmt(tot) + '" title="Nota Final"></td>';
       html += '</tr>';
     });
     html += '</tbody></table>';
@@ -2781,7 +3064,7 @@ export function initLegacyRuntime() {
       el.classList.remove('has-val', 'over');
       el.classList.add(score > maxVal ? 'over' : 'has-val');
     } else el.classList.remove('has-val', 'over');
-    renderGradeTable();
+    refreshGradeRowTotals(sid);
   }
 
   function calSave() {
@@ -3901,7 +4184,7 @@ export function initLegacyRuntime() {
 
       // Datos personales del estudiante
       if (estudiante && estudiante.nombres) {
-        htmlResultados += '<div class="card" style="margin-bottom:16px"><div class="card-header"><div class="card-title"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:6px"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> ' + estudiante.apellidos + ', ' + estudiante.nombres + '</div></div><div class="card-body">' +
+        htmlResultados += '<div class="card" style="margin-bottom:16px"><div class="card-header"><div class="card-title"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:6px"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> ' + estudiante.apellidos + ' ' + estudiante.nombres + '</div></div><div class="card-body">' +
           '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:.82rem">' +
           '<div><strong>Cédula:</strong> ' + (estudiante.cedula || '—') + '</div>' +
           '<div><strong>Código:</strong> ' + (estudiante.codigo || '—') + '</div>' +
@@ -3926,8 +4209,24 @@ export function initLegacyRuntime() {
             var docentesHtml = '—';
             var paralelosHtml = '—';
             if (info && info.dictados && info.dictados.length > 0) {
-              docentesHtml = info.dictados.map(function (d) { return (d.docente.apellidos + ', ' + d.docente.nombres).trim(); }).join('<br>');
-              paralelosHtml = info.dictados.map(function (d) { return d.paralelo; }).join(', ');
+              var paraleloMateria = String(m.paralelo || '').trim();
+              var dictadosMateria = info.dictados;
+              if (paraleloMateria) {
+                var filtrados = dictadosMateria.filter(function (d) { return String(d.paralelo || '').trim() === paraleloMateria; });
+                if (filtrados.length > 0) dictadosMateria = filtrados;
+              }
+              docentesHtml = dictadosMateria.map(function (d) {
+                var doc = d.docente || {};
+                return ((doc.nombres || '') + ' ' + (doc.apellidos || '')).trim() || '—';
+              }).join('<br>');
+              var paralelos = [];
+              dictadosMateria.forEach(function (d) {
+                var p = String(d.paralelo || '').trim();
+                if (p && paralelos.indexOf(p) === -1) paralelos.push(p);
+              });
+              paralelosHtml = paralelos.length ? paralelos.join(', ') : (paraleloMateria || '—');
+            } else if (m.paralelo) {
+              paralelosHtml = m.paralelo;
             }
             return '<tr><td>' + m.materia + '</td><td>' + m.codMateria + '</td><td style="font-size:.75rem">' + docentesHtml + '</td><td>' + paralelosHtml + '</td></tr>';
           }).join('') +
@@ -4118,8 +4417,11 @@ export function initLegacyRuntime() {
   window.renderStudentTable = renderStudentTable;
   window.renderGradeTable = renderGradeTable;
   window.exportStudentsPDF = exportStudentsPDF;
-  window.exportGradesPDF = exportGradesPDF;
-  window.showGradesQR = showGradesQR;
+  window.exportGradesExcel = exportGradesExcel;
+  window.exportGradesPDF = function () { exportPayloadPDF('grades'); };
+  window.showGradesQR = function () { showExportQR('grades'); };
+  window.__legacyExportGradesPDF = exportGradesPDF;
+  window.__legacyShowGradesQR = showGradesQR;
   window.editStudent = editStudent;
   window.confirmDelete = confirmDelete;
   window.onGradeInput = onGradeInput;
@@ -4168,6 +4470,10 @@ export function initLegacyRuntime() {
   window.coordTriggerExcel = coordTriggerExcel;
   window.coordImportExcel = coordImportExcel;
   window.printDetailedReport = printDetailedReport;
+  window.exportReportExcel = exportReportExcel;
+  window.exportReportPDF = exportReportPDF;
+  window.showReportQR = showReportQR;
+  window.navigate = navigate;
 
   var carrera = document.getElementById('cfg-carrera');
   var pao = document.getElementById('cfg-pao');
@@ -4235,14 +4541,14 @@ export function initLegacyRuntime() {
 
     if (isGradeCell) {
       // Flechas: celda a celda en cualquier dirección.
-      if (event.key === 'ArrowUp') { if (moveGradeFocus(event.target, 'up')) event.preventDefault(); return; }
-      if (event.key === 'ArrowDown') { if (moveGradeFocus(event.target, 'down')) event.preventDefault(); return; }
-      if (event.key === 'ArrowLeft') { if (moveGradeFocus(event.target, 'left')) event.preventDefault(); return; }
-      if (event.key === 'ArrowRight') { if (moveGradeFocus(event.target, 'right')) event.preventDefault(); return; }
+      if (event.key === 'ArrowUp') { onGradeChange(event.target); if (moveGradeFocus(event.target, 'up')) event.preventDefault(); return; }
+      if (event.key === 'ArrowDown') { onGradeChange(event.target); if (moveGradeFocus(event.target, 'down')) event.preventDefault(); return; }
+      if (event.key === 'ArrowLeft') { onGradeChange(event.target); if (moveGradeFocus(event.target, 'left')) event.preventDefault(); return; }
+      if (event.key === 'ArrowRight') { onGradeChange(event.target); if (moveGradeFocus(event.target, 'right')) event.preventDefault(); return; }
       // Tab: avanza/retrocede entre celdas (secciones de notas).
-      if (event.key === 'Tab') { event.preventDefault(); moveGradeFocus(event.target, event.shiftKey ? 'prev' : 'next'); return; }
-      // Enter: confirma (guarda todas las calificaciones).
-      if (event.key === 'Enter') { event.preventDefault(); calSave(); return; }
+      if (event.key === 'Tab') { event.preventDefault(); onGradeChange(event.target); moveGradeFocus(event.target, event.shiftKey ? 'prev' : 'next'); return; }
+      // Enter: registra la nota actual y baja a la siguiente fila; Ctrl+Enter guarda todo.
+      if (event.key === 'Enter') { event.preventDefault(); onGradeChange(event.target); if (!moveGradeFocus(event.target, event.shiftKey ? 'up' : 'down')) moveGradeFocus(event.target, event.shiftKey ? 'prev' : 'next'); return; }
       return;
     }
 

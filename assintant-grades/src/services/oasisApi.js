@@ -93,10 +93,10 @@ export function getCarreras() {
  * Importación AUTOMÁTICA de nómina: resuelve carrera + asignatura (por nombre)
  * a sus códigos OASIS y devuelve { resuelto, estudiantes }.
  */
-export function importarNomina({ carrera, asignatura, facultad, docente, codCarrera }) {
+export function importarNomina({ carrera, asignatura, facultad, docente, codCarrera, paralelo, codParalelo }) {
   return request("/api/nomina", {
     method: "POST",
-    body: { carrera, asignatura, facultad, docente, codCarrera },
+    body: { carrera, asignatura, facultad, docente, codCarrera, paralelo, codParalelo },
   });
 }
 
@@ -133,6 +133,23 @@ export function getStore({ email, role }) {
 /** Guarda (sincroniza) el store. */
 export function putStore(payload) {
   return request("/api/store", { method: "PUT", body: payload });
+}
+
+/** Crea una pagina temporal de descarga para QR (Excel/PDF). */
+export async function createExportPage(payload) {
+  const data = await request("/api/export-cache", { method: "POST", body: { payload } });
+  if (!data || !data.path) return data;
+  let base = API_BASE_URL;
+  try {
+    const apiUrl = new URL(API_BASE_URL);
+    if (/^(localhost|127\.0\.0\.1)$/i.test(apiUrl.hostname) && window.location.hostname && !/^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname)) {
+      apiUrl.hostname = window.location.hostname;
+      base = apiUrl.toString().replace(/\/+$/, "");
+    }
+  } catch {
+    /* mantiene API_BASE_URL */
+  }
+  return { ...data, pageUrl: new URL(data.path, base + "/").toString() };
 }
 
 /** Dev/test login: bypass OASIS. Usar login="dev.docente", "dev.coordinador", o "dev.admin". */

@@ -29,6 +29,11 @@ function sendJson(res, status, payload, cors) {
   res.end(JSON.stringify(payload));
 }
 
+function sendRaw(res, status, payload, cors) {
+  res.writeHead(status, { "Content-Type": payload.contentType || "text/plain; charset=utf-8", ...cors, ...(payload.headers || {}) });
+  res.end(payload.body || "");
+}
+
 function readJsonBody(req) {
   return new Promise((resolve) => {
     let raw = "";
@@ -58,15 +63,24 @@ export function createHttpServer(routes, config) {
       return;
     }
     const url = new URL(req.url, "http://localhost");
-    const handler = routes[req.method + " " + url.pathname];
+    let handler = routes[req.method + " " + url.pathname];
+    let routeArg = null;
+    if (!handler && req.method === "GET" && url.pathname.startsWith("/api/export-cache/")) {
+      handler = routes["GET /api/export-cache/:id"];
+      routeArg = { id: decodeURIComponent(url.pathname.split("/").pop() || "") };
+    }
     if (!handler) {
       sendJson(res, 404, { error: "Recurso no encontrado: " + req.method + " " + url.pathname }, cors);
       return;
     }
     const hasBody = req.method === "POST" || req.method === "PUT";
-    const arg = hasBody ? await readJsonBody(req) : Object.fromEntries(url.searchParams.entries());
+    const arg = routeArg || (hasBody ? await readJsonBody(req) : Object.fromEntries(url.searchParams.entries()));
     try {
       const data = await handler(arg);
+      if (data && data.__raw) {
+        sendRaw(res, data.status || 200, data.__raw, cors);
+        return;
+      }
       sendJson(res, 200, data, cors);
     } catch (err) {
       const status = err.soapFault ? 400 : err.statusCode || 502;

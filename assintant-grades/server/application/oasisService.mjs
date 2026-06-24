@@ -132,8 +132,21 @@ export class OasisService {
     if (!dictados.length) throw new Error(`"${materia.materia}" (${materia.codMateria}) no tiene paralelos activos este período en ${carreraOasis.nombre}.`);
 
     const docNorm = norm(body.docente);
+    const docenteCoincide = (d) => {
+      if (!docNorm) return false;
+      const apNom = norm((d.docente?.apellidos || "") + " " + (d.docente?.nombres || ""));
+      const nomAp = norm((d.docente?.nombres || "") + " " + (d.docente?.apellidos || ""));
+      const cedula = norm(d.docente?.cedula || "");
+      const tokens = docNorm.split(/\s+/).filter(Boolean);
+      return apNom.includes(docNorm) ||
+        nomAp.includes(docNorm) ||
+        (cedula && docNorm.includes(cedula)) ||
+        (tokens.length > 1 && tokens.every((token) => apNom.includes(token) || nomAp.includes(token)));
+    };
+    const paraleloSolicitado = String(body.paralelo || body.codParalelo || "").trim();
     const elegido =
-      (docNorm && dictados.find((d) => norm(d.docente.apellidos + " " + d.docente.nombres).includes(docNorm))) ||
+      (paraleloSolicitado && dictados.find((d) => String(d.paralelo || "").trim() === paraleloSolicitado)) ||
+      (docNorm && dictados.find(docenteCoincide)) ||
       dictados[0];
 
     const periodo = await gateway.getPeriodoActual();
