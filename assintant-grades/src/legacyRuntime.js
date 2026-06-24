@@ -605,6 +605,7 @@ export function initLegacyRuntime() {
   }
 
   function selectPaoFromDropdown(configId, event) {
+    if (typeof window.__closeSidebar === 'function') window.__closeSidebar();
     if (event) event.stopPropagation();
     closePaoDropdown();
     if (configId === STATE.activeConfigId) return;
@@ -2541,7 +2542,7 @@ export function initLegacyRuntime() {
       document.getElementById('cal-sub').textContent = 'Seleccione un PAO desde MIS PAOs para registrar calificaciones.';
       document.getElementById('cal-legend').innerHTML = '';
       updateReportAvailability();
-      document.getElementById('cal-table-wrap').innerHTML = '<div style="padding:24px;text-align:center;color:var(--gray-500);font-size:.85rem">Seleccione un PAO desde MIS PAOs para registrar calificaciones.</div>';
+      document.getElementById('cal-grid-body').innerHTML = '<div style="padding:24px;text-align:center;color:var(--gray-500);font-size:.85rem">Seleccione un PAO desde MIS PAOs para registrar calificaciones.</div>';
       document.getElementById('cal-progress-label').textContent = '0/0 notas';
       document.getElementById('cal-progress-fill').style.width = '0%';
       document.getElementById('cal-progress-pct').textContent = '0%';
@@ -2551,7 +2552,7 @@ export function initLegacyRuntime() {
       document.getElementById('cal-sub').textContent = 'No hay estudiantes registrados para el PAO activo.';
       document.getElementById('cal-legend').innerHTML = '';
       updateReportAvailability();
-      document.getElementById('cal-table-wrap').innerHTML = '<div style="padding:24px;text-align:center;color:var(--gray-500);font-size:.85rem">No hay estudiantes registrados para este PAO. Vaya a Estudiantes y presione "Actualizar".</div>';
+      document.getElementById('cal-grid-body').innerHTML = '<div style="padding:24px;text-align:center;color:var(--gray-500);font-size:.85rem">No hay estudiantes registrados para este PAO. Vaya a Estudiantes y presione "Actualizar".</div>';
       document.getElementById('cal-progress-label').textContent = '0/0 notas';
       document.getElementById('cal-progress-fill').style.width = '0%';
       document.getElementById('cal-progress-pct').textContent = '0%';
@@ -2601,7 +2602,7 @@ export function initLegacyRuntime() {
       document.getElementById('cal-progress-label').textContent = '0/0 notas';
       document.getElementById('cal-progress-fill').style.width = '0%';
       document.getElementById('cal-progress-pct').textContent = '0%';
-      document.getElementById('cal-table-wrap').innerHTML =
+      document.getElementById('cal-grid-body').innerHTML =
         '<div style="padding:18px;color:var(--gray-600);font-size:.85rem">No hay actividades configuradas todavía. Vaya a Configuración y registre actividades por componente para habilitar la tabla completa de calificaciones.</div>';
       updateReportAvailability();
       return;
@@ -2679,7 +2680,7 @@ export function initLegacyRuntime() {
       html += '</tr>';
     });
     html += '</tbody></table>';
-    document.getElementById('cal-table-wrap').innerHTML = html;
+    document.getElementById('cal-grid-body').innerHTML = html;
     updateReportAvailability();
   }
 
@@ -3815,6 +3816,11 @@ export function initLegacyRuntime() {
     try {
       var data = await oasis.getEstudianteFull({ cedula: cedula });
       var estudiante = data.estudiante;
+      // Si OASIS no devuelve codigo, buscar en STATE.students local
+      if (estudiante && estudiante.codigo === "") {
+        var localStudent = (STATE.students || []).find(function (s) { return s.cedula === cedula || s.cedula === estudiante.cedula; });
+        if (localStudent && localStudent.codigo) estudiante.codigo = localStudent.codigo;
+      }
       var materias = data.materias || [];
       var horario = data.horario || [];
       var carrera = data.carrera;
@@ -3907,6 +3913,7 @@ export function initLegacyRuntime() {
   }
 
   function navigate(page) {
+    if (typeof window.__closeSidebar === 'function') window.__closeSidebar();
     if (!roleCanAccess(page)) {
       showToast('No tiene permisos para esta sección.', 'error');
       return;
@@ -4120,7 +4127,7 @@ export function initLegacyRuntime() {
   // Mueve el foco entre celdas de notas. dir: 'up'|'down'|'left'|'right'|'next'|'prev'.
   function moveGradeFocus(target, dir) {
     var rows = [];
-    document.querySelectorAll('#cal-table-wrap tr').forEach(function (tr) {
+    document.querySelectorAll('#cal-grid-body tr').forEach(function (tr) {
       var ins = Array.prototype.slice.call(tr.querySelectorAll('.grade-input'));
       if (ins.length) rows.push(ins);
     });

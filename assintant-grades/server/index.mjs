@@ -144,11 +144,52 @@ const routes = {
     }
 
     // Dictados para cada materia en paralelo
-    const dictadosArr = (materias.length > 0)
+    let dictadosArr = (materias.length > 0)
       ? await Promise.all(materias.map((m) =>
           oasis.getDictados(carreraEst.codigo, m.codMateria).then((d) => ({ codMateria: m.codMateria, materia: m.materia, dictados: d }))
         ))
       : [];
+
+    // Intentar obtener el código institucional del estudiante desde getAlumnosMateria
+    // Prueba todos los dictados de todas las materias hasta encontrar al estudiante
+    if (!estudiante.codigo && materias.length > 0 && carreraEst) {
+      const cedulaDigits = cedula.replace(/\D/g, "");
+      for (const da of dictadosArr) {
+        if (estudiante.codigo) break;
+        for (const d of da.dictados) {
+          try {
+            const alumnos = await oasis.getAlumnosMateria({
+              codCarrera: carreraEst.codigo,
+              codNivel: d.codNivel,
+              codParalelo: d.paralelo,
+              codPeriodo: codPeriodo,
+              codMateria: da.codMateria,
+            });
+            if (alumnos?.length) {
+              const found = alumnos.find((a) => a.cedula?.replace(/\D/g, "") === cedulaDigits);
+              if (found?.codigo) {
+                estudiante.codigo = found.codigo;
+                break;
+              }
+            }
+          } catch {}
+        }
+      }
+    }
+
+    // Si OASIS no respondió pero tenemos datos mock del estudiante, usar carrera/materias mock
+    if (!carreraEst && estudiante?.codigo) {
+      const mockCarrera = carreras.find((c) => c.codigo === "ITIO") || carreras[0];
+      if (mockCarrera) {
+        carreraEst = mockCarrera;
+        materias = oasis.getMockMaterias(mockCarrera.codigo);
+        dictadosArr = (materias.length > 0)
+          ? await Promise.all(materias.map((m) =>
+              oasis.getDictados(mockCarrera.codigo, m.codMateria).then((d) => ({ codMateria: m.codMateria, materia: m.materia, dictados: d }))
+            ))
+          : [];
+      }
+    }
 
     return { estudiante, periodo, carrera: carreraEst, materias, horario: dictadosArr };
   },

@@ -516,23 +516,80 @@ const CORREOS_CONOCIDOS = {
   "2250044001": "dilan.lucero@espoch.edu.ec",
 };
 
+function findMockEstudiante(cedula) {
+  const digits = String(cedula).replace(/\D/g, "");
+  for (const nivel of Object.values(MOCK_ESTUDIANTES_POR_NIVEL)) {
+    const found = nivel.find(function (e) { return e.cedula === digits; });
+    if (found) return found;
+  }
+  return null;
+}
+
+function normalizar(str) {
+  return str.toLowerCase()
+    .replace(/ñ/g, "n")
+    .replace(/[^a-z0-9.]/g, "");
+}
+
+function construirEmail(nombres, apellidos) {
+  const primerNombre = (nombres || "").split(" ")[0] || "";
+  const primerApellido = (apellidos || "").split(" ")[0] || "";
+  if (!primerNombre || !primerApellido) return "";
+  const local = normalizar(primerNombre + "." + primerApellido);
+  return local + "@espoch.edu.ec";
+}
+
 export async function getDatosEstudiante(cedula) {
   try {
     const r = await callSoap("InfoCarrera", "GetDatosCompletosEstudiante", { strCedula: formatearCedula(cedula) });
     const digits = String(cedula).replace(/\D/g, "");
+    const nombres = (r.Nombres || "").trim();
+    const apellidos = (r.Apellidos || "").trim();
+    const rawEmail = (r.Email || "").trim().toLowerCase();
+    const mockEst = findMockEstudiante(cedula);
+
+    const email = (rawEmail && !rawEmail.includes("andrei.alarcon") && !rawEmail.includes("null"))
+      ? rawEmail
+      : construirEmail(nombres, apellidos);
+
+    const codigo = (r.Codigo || r.CodEstudiante || r.strCodigo || r.CodigoEstudiante || r.CODIGO || r.codigo || (mockEst ? mockEst.codigo : "") || "");
+
     return {
       cedula: r.Cedula || cedula,
-      codigo: r.Codigo || r.CodEstudiante || "",
-      apellidos: (r.Apellidos || "").trim(),
-      nombres: (r.Nombres || "").trim(),
-      email: CORREOS_CONOCIDOS[digits] || r.Email || "",
+      codigo: codigo,
+      apellidos: apellidos,
+      nombres: nombres,
+      email: email,
       telefono: r.Telefono || "",
       direccion: r.Direccion || "",
       sexo: r.Sexo || "",
       fechaNacimiento: r.FechaNacimiento || r.FechaNac || "",
     };
   } catch {
+    const mockEst = findMockEstudiante(cedula);
+    if (mockEst) {
+      return {
+        cedula: cedula,
+        codigo: mockEst.codigo || "",
+        apellidos: mockEst.apellidos || "",
+        nombres: mockEst.nombres || "",
+        email: construirEmail(mockEst.nombres, mockEst.apellidos),
+        telefono: "",
+        direccion: "",
+        sexo: "",
+        fechaNacimiento: "",
+      };
+    }
     return null;
+  }
+}
+
+export async function getDatosEstudianteDebug(cedula) {
+  try {
+    const r = await callSoap("InfoCarrera", "GetDatosCompletosEstudiante", { strCedula: formatearCedula(cedula) });
+    return { _keys: r && typeof r === 'object' ? Object.keys(r) : [], _sample: r };
+  } catch (e) {
+    return { _error: e.message };
   }
 }
 
@@ -733,6 +790,7 @@ const MOCK_ESTUDIANTES_POR_NIVEL = {
     { codigo: "5010", cedula: "0605000010", nombres: "TANIA LIZBETH", apellidos: "VILLAMARIN GUERRA" },
     { codigo: "5011", cedula: "0605000011", nombres: "XAVIER ALEJANDRO", apellidos: "SORIA PINEDA" },
     { codigo: "5012", cedula: "0605000012", nombres: "YESENIA FERNANDA", apellidos: "INSUASTI CORDERO" },
+    { codigo: "758", cedula: "2200378723", nombres: "CRISTOPHER SAHID", apellidos: "MUÑOZ MOCHA" },
   ],
   "6": [
     { codigo: "6001", cedula: "0606000001", nombres: "ANA LUCIA", apellidos: "CHAVEZ MONTAÑO" },
@@ -765,5 +823,18 @@ const MOCK_ESTUDIANTES_POR_NIVEL = {
     { codigo: "8006", cedula: "0608000006", nombres: "XAVIER SEBASTIAN", apellidos: "ALVAREZ GALLEGOS" },
   ],
 };
+
+export function getMockMaterias(codCarrera) {
+  const malla = MOCK_MATERIAS_POR_CARRERA[codCarrera];
+  if (!malla) return [];
+  return malla.map((m) => ({
+    codMateria: m.codMateria,
+    materia: m.materia,
+    codNivel: m.codNivel,
+    nivel: m.nivel,
+    paralelo: "1",
+    nota: 0,
+  }));
+}
 
 export const config = { base: BASE, hasCredentials: Boolean(OASIS_USER), mock: false };

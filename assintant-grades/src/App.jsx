@@ -1,4 +1,5 @@
-﻿import useLegacyRuntime from "./hooks/useLegacyRuntime";
+﻿import { useState, useCallback, useEffect } from "react";
+import useLegacyRuntime from "./hooks/useLegacyRuntime";
 import AuthScreen from "./components/AuthScreen";
 import Sidebar from "./components/Sidebar";
 import Pages from "./components/Pages";
@@ -6,12 +7,52 @@ import "./App.css";
 
 export default function App() {
   useLegacyRuntime();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  const toggleSidebar = useCallback(() => {
+    setSidebarOpen((prev) => !prev);
+  }, []);
+
+  const closeSidebar = useCallback(() => {
+    setSidebarOpen(false);
+  }, []);
+
+  useEffect(() => {
+    window.__closeSidebar = closeSidebar;
+    return () => { delete window.__closeSidebar; };
+  }, [closeSidebar]);
+
+  useEffect(() => {
+    const handleEsc = (e) => {
+      if (e.key === "Escape" && sidebarOpen) closeSidebar();
+    };
+    window.addEventListener("keydown", handleEsc);
+    return () => window.removeEventListener("keydown", handleEsc);
+  }, [sidebarOpen, closeSidebar]);
+
+  useEffect(() => {
+    if (sidebarOpen) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => { document.body.style.overflow = ""; };
+  }, [sidebarOpen]);
 
   return (
     <>
       <AuthScreen />
-      <div id="app-shell">
-        <Sidebar />
+      <div id="app-shell" className={sidebarOpen ? "sidebar-open" : ""} onClick={closeSidebar}>
+        <div className="mobile-topbar" onClick={(e) => e.stopPropagation()}>
+          <button className="hamburger-btn" onClick={(e) => { e.stopPropagation(); toggleSidebar(); }} aria-label="Abrir menú">
+            <span className="hamburger-line"></span>
+            <span className="hamburger-line"></span>
+            <span className="hamburger-line"></span>
+          </button>
+          <img src="/escudo_espoch.png" alt="ESPOCH" className="topbar-logo" />
+          <span className="topbar-title">ESPOCH · Calificaciones</span>
+        </div>
+        <Sidebar onToggle={toggleSidebar} sidebarOpen={sidebarOpen} onNavClick={closeSidebar} />
         <Pages />
       </div>
 

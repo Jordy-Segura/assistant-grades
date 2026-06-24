@@ -23,6 +23,10 @@ backend/logs/
 # Session memory (generated per-session)
 memory.json
 
+# Temp scripts
+_*.mjs
+supabase/.temp/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
