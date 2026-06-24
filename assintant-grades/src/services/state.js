@@ -178,53 +178,36 @@ export async function hydrateFromDb() {
     return;
   }
 
-  // Docentes (global). Conservamos contraseñas locales de esta sesión si existen.
+  // REEMPLAZAR estado local con datos de Supabase (fuente de verdad)
+  // Docentes: preservar contraseñas locales
   if (Array.isArray(store.docentes)) {
-    const byEmail = {};
+    const localPasswords = {};
     (_state.docentes || []).forEach((d) => {
-      byEmail[d.email] = d;
+      if (d.password) localPasswords[d.email] = d.password;
     });
-    _state.docentes = store.docentes.map((d) => {
-      const local = byEmail[d.email];
-      return {
-        email: d.email,
-        nombre: d.nombre,
-        name: d.nombre,
-        cedula: d.cedula || "",
-        role: d.rol || "docente",
-        rol: d.rol || "docente",
-        password: (local && local.password) || "",
-      };
-    });
+    _state.docentes = store.docentes.map((d) => ({
+      email: d.email,
+      nombre: d.nombre,
+      name: d.nombre,
+      cedula: d.cedula || "",
+      role: d.rol || "docente",
+      rol: d.rol || "docente",
+      password: localPasswords[d.email] || "",
+    }));
   }
 
   if (Array.isArray(store.teacherAssignments))
     _state.teacherAssignments = store.teacherAssignments;
 
-  if (Array.isArray(store.savedConfigs)) {
-    const dbById = {};
-    store.savedConfigs.forEach((c) => {
-      dbById[c.id] = c;
-    });
-    const merged = store.savedConfigs.slice();
-    (_state.savedConfigs || []).forEach((c) => {
-      if (!dbById[c.id]) merged.push(c);
-    });
-    _state.savedConfigs = merged;
-  }
+  // Reemplazar configuraciones, estudiantes y notas (no merge)
+  _state.savedConfigs = Array.isArray(store.savedConfigs) ? store.savedConfigs : _state.savedConfigs;
+  _state.studentsByConfig = store.studentsByConfig || {};
+  _state.gradesByConfig = store.gradesByConfig || {};
 
-  if (store.studentsByConfig)
-    _state.studentsByConfig = Object.assign(
-      {},
-      _state.studentsByConfig,
-      store.studentsByConfig
-    );
-  if (store.gradesByConfig)
-    _state.gradesByConfig = Object.assign(
-      {},
-      _state.gradesByConfig,
-      store.gradesByConfig
-    );
+  // Si no hay activeConfigId pero hay configuraciones, activar la primera
+  if (!_state.activeConfigId && Array.isArray(_state.savedConfigs) && _state.savedConfigs.length > 0) {
+    _state.activeConfigId = _state.savedConfigs[0].id;
+  }
 
   if (_state.activeConfigId && typeof window.cargarPaoActivo === "function") {
     window.cargarPaoActivo();

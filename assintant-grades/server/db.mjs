@@ -1,33 +1,24 @@
-// Capa de datos PostgreSQL (Neon/Supabase) para el Auxiliar de Calificaciones.
-// Guarda los datos PROPIOS de la app (docentes, asignaciones, configuraciones,
-// estudiantes y notas). Los datos académicos (carreras, malla, horarios...) se
-// siguen consultando en vivo a OASIS, no se guardan aquí.
-//
-// Si no hay DATABASE_URL, el módulo queda "desactivado" y el frontend usa
-// sessionStorage como respaldo: la app sigue funcionando sin base de datos.
-import pg from "pg";
+// Capa de datos Supabase (nuevo esquema de 8 tablas)
+import { createClient } from "@supabase/supabase-js";
 import { scryptSync, randomBytes, timingSafeEqual } from "node:crypto";
 
-const DATABASE_URL = process.env.DATABASE_URL || "";
-export const enabled = Boolean(DATABASE_URL);
+const SUPABASE_URL = process.env.SUPABASE_URL || "";
+const SUPABASE_KEY = process.env.SUPABASE_KEY || "";
+export const enabled = Boolean(SUPABASE_URL && SUPABASE_KEY);
 
-let pool = null;
+let supabase = null;
 if (enabled) {
-  pool = new pg.Pool({
-    connectionString: DATABASE_URL,
-    // Neon/Supabase requieren TLS; aceptamos su certificado gestionado.
-    ssl: { rejectUnauthorized: false },
-    max: 5,
-    idleTimeoutMillis: 30000,
+  supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
+    auth: { persistSession: false },
   });
 }
 
-function q(text, params) {
-  if (!pool) throw new Error("Base de datos no configurada (defina DATABASE_URL).");
-  return pool.query(text, params);
+function sb() {
+  if (!supabase) throw new Error("Supabase no configurado.");
+  return supabase;
 }
 
-// ---- Contraseñas (hash scrypt, sin dependencias externas) ----
+// ---- Contraseñas ----
 export function hashPassword(plain) {
   const salt = randomBytes(16).toString("hex");
   const hash = scryptSync(String(plain), salt, 64).toString("hex");
@@ -46,208 +37,388 @@ export function verifyPassword(plain, stored) {
 
 const COORDINADOR = {
   email: "ppaguay@espoch.edu.ec",
-  nombre: "PAUL PAGUAY",
+  nombres: "PAUL PAGUAY",
   cedula: "",
   rol: "coordinador",
   password: "paguay2026",
 };
 
-// ---- Esquema ----
 export async function ensureSchema() {
-  if (!pool) return;
-  await q(`
-    CREATE TABLE IF NOT EXISTS docente (
-      email TEXT PRIMARY KEY,
-      nombre TEXT,
-      cedula TEXT,
-      rol TEXT DEFAULT 'docente',
-      password_hash TEXT,
-      updated_at TIMESTAMPTZ DEFAULT now()
-    );
-    CREATE TABLE IF NOT EXISTS asignacion (
-      id TEXT PRIMARY KEY,
-      docente_email TEXT,
-      carrera TEXT, asignatura TEXT, pao TEXT, paralelo TEXT,
-      data JSONB NOT NULL,
-      updated_at TIMESTAMPTZ DEFAULT now()
-    );
-    CREATE TABLE IF NOT EXISTS configuracion (
-      id TEXT PRIMARY KEY,
-      owner_email TEXT,
-      carrera TEXT, asignatura TEXT, pao TEXT,
-      data JSONB NOT NULL,
-      saved_at TEXT,
-      updated_at TIMESTAMPTZ DEFAULT now()
-    );
-    CREATE TABLE IF NOT EXISTS config_estudiantes (
-      config_id TEXT PRIMARY KEY,
-      data JSONB NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS config_notas (
-      config_id TEXT PRIMARY KEY,
-      data JSONB NOT NULL
-    );
-  `);
-  // Migraciones: agrega columnas que pudieron faltar en esquemas anteriores.
-  await q(`ALTER TABLE docente ADD COLUMN IF NOT EXISTS password_hash TEXT;`)
-    .catch(() => {}); // ignora si falla
-  await q(`ALTER TABLE config_estudiantes ADD COLUMN IF NOT EXISTS data JSONB;`)
-    .catch(() => {});
-  await q(`ALTER TABLE config_notas ADD COLUMN IF NOT EXISTS data JSONB;`)
-    .catch(() => {});
-  await q(`
-    CREATE INDEX IF NOT EXISTS idx_asignacion_docente ON asignacion(docente_email);
-    CREATE INDEX IF NOT EXISTS idx_config_owner ON configuracion(owner_email);
-  `);
-  // Sembrar al coordinador si no existe.
-  const r = await q("SELECT 1 FROM docente WHERE email=$1", [COORDINADOR.email]);
-  if (r.rowCount === 0) {
-    await q(
-      "INSERT INTO docente(email,nombre,cedula,rol,password_hash) VALUES ($1,$2,$3,$4,$5)",
-      [COORDINADOR.email, COORDINADOR.nombre, COORDINADOR.cedula, COORDINADOR.rol, hashPassword(COORDINADOR.password)]
-    );
+  if (!supabase) return;
+  const { error } = await supabase.from("docentes_sistema").select("id", { count: "exact", head: true }).limit(1);
+  if (error && error.code === "42P01") {
+    console.warn("[BFF] Tablas nuevas no existen. Ejecute la migración SQL.");
+    return;
   }
+  // Sembrar/actualizar coordinador (siempre resetear hash para desarrollo)
+  const pwHash = hashPassword(COORDINADOR.password);
+  const { data: existing } = await supabase.from("docentes_sistema").select("email").eq("email", COORDINADOR.email).limit(1);
+  if (!existing || existing.length === 0) {
+    await supabase.from("docentes_sistema").insert({
+      email: COORDINADOR.email,
+      nombres: COORDINADOR.nombres,
+      cedula: COORDINADOR.cedula,
+      rol: COORDINADOR.rol,
+      password_hash: pwHash,
+      data: {},
+    });
+  } else {
+    await supabase.from("docentes_sistema").update({ password_hash: pwHash }).eq("email", COORDINADOR.email);
+  }
+  console.log("[BFF] Supabase esquema verificado.");
 }
 
-// ---- Lectura del "store" que necesita el frontend ----
+// ---- LECTURA ----
 export async function getStore({ email, role } = {}) {
-  const docentesRes = await q("SELECT email,nombre,cedula,rol FROM docente ORDER BY nombre");
-  const asigRes = await q("SELECT data FROM asignacion");
-  // El coordinador ve todas las configuraciones; un docente solo las suyas.
-  const configsRes = role === "coordinador"
-    ? await q("SELECT data FROM configuracion ORDER BY updated_at DESC")
-    : await q("SELECT data FROM configuracion WHERE owner_email=$1 ORDER BY updated_at DESC", [email || ""]);
+  const result = {
+    docentes: [],
+    teacherAssignments: [],
+    savedConfigs: [],
+    studentsByConfig: {},
+    gradesByConfig: {},
+  };
 
-  const configuraciones = configsRes.rows.map((r) => r.data);
-  const ids = configuraciones.map((c) => c.id).filter(Boolean);
-
-  const studentsByConfig = {};
-  const gradesByConfig = {};
-  if (ids.length) {
-    const est = await q("SELECT config_id,data FROM config_estudiantes WHERE config_id = ANY($1)", [ids]);
-    est.rows.forEach((r) => { studentsByConfig[r.config_id] = r.data; });
-    const notas = await q("SELECT config_id,data FROM config_notas WHERE config_id = ANY($1)", [ids]);
-    notas.rows.forEach((r) => { gradesByConfig[r.config_id] = r.data; });
+  // 1. Docentes
+  const { data: docentes } = await supabase.from("docentes_sistema").select("*").order("nombres");
+  if (docentes) {
+    result.docentes = docentes
+      .filter((d) => d.rol !== "coordinador")
+      .map((d) => ({
+        email: d.email,
+        nombre: d.nombres || "",
+        cedula: d.cedula || "",
+        rol: d.rol || "docente",
+      }));
   }
 
+  // 2. Asignaciones
+  const { data: asignaciones } = await supabase.from("asignaciones").select("*").order("asignatura");
+  if (asignaciones) {
+    result.teacherAssignments = asignaciones.map((a) => a.data || a);
+  }
+
+  // 3. Configuraciones
+  let configsQuery = supabase.from("configuraciones_pao").select("*").order("created_at", { ascending: false });
+  if (role !== "coordinador") configsQuery = configsQuery.eq("owner_email", email || "");
+  const { data: configs } = await configsQuery;
+
+  if (!configs || configs.length === 0) return result;
+
+  const configIds = configs.map((c) => c.id);
+
+  // 4. Cargar resultados_aprendizaje (RACs + RAAUs)
+  const { data: resultados } = await supabase
+    .from("resultados_aprendizaje")
+    .select("*")
+    .in("config_id", configIds)
+    .order("orden");
+
+  const racsByName = {};    // configId → { descripcion → codigo }
+  const raauByRac = {};     // configId → [{ racId, codigo, descripcion }]
+  for (const r of resultados || []) {
+    if (!racsByName[r.config_id]) racsByName[r.config_id] = {};
+    if (!raauByRac[r.config_id]) raauByRac[r.config_id] = [];
+    if (r.tipo === "RAC") {
+      racsByName[r.config_id][r.descripcion] = r.codigo;
+    } else if (r.tipo === "RAAU") {
+      raauByRac[r.config_id].push({
+        id: r.id,
+        racId: r.rac_id_relacionado || r.codigo?.charAt(0) === "U" ? `RA${r.codigo?.replace(/\D/g, "")?.charAt(0) || ""}` : "",
+        codigo: r.codigo || "",
+        descripcion: r.descripcion || "",
+      });
+    }
+  }
+
+  // 5. Cargar actividades_evaluacion completas
+  const { data: actividades } = await supabase
+    .from("actividades_evaluacion")
+    .select("id, config_id, componente, nombre, descripcion, puntaje_maximo, procedimiento, rac_id, raau_id, orden")
+    .in("config_id", configIds)
+    .order("orden");
+
+  // Mapa: configId → actividad por nombre
+  const actByName = {};
+  for (const a of actividades || []) {
+    if (!actByName[a.config_id]) actByName[a.config_id] = {};
+    actByName[a.config_id][a.nombre] = a;
+  }
+
+  result.savedConfigs = configs.map((c) => {
+    let data = c.data || {};
+
+    if (!data.courseConfig) {
+      data.courseConfig = {
+        periodoAcademico: "",
+        facultad: "SEDE ORELLANA",
+        carrera: c.carrera || "",
+        asignatura: c.asignatura || "",
+        docente: c.owner_email || "",
+        pao: c.pao || "",
+        aporte: c.aporte || "FIN DE CICLO",
+      };
+    }
+
+    // Reconstruir selectedRACIds desde resultados si está vacío
+    let selectedRACIds = data.selectedRACIds || [];
+    if (selectedRACIds.length === 0 && racsByName[c.id]) {
+      selectedRACIds = Object.values(racsByName[c.id]).filter(Boolean);
+    }
+
+    // Reconstruir raauEntries desde resultados si está vacío
+    let raauEntries = data.raauEntries || [];
+    if (raauEntries.length === 0 && raauByRac[c.id]) {
+      raauEntries = raauByRac[c.id].map((r) => ({
+        id: r.id,
+        racId: r.racId,
+        codigo: r.codigo,
+        descripcion: r.descripcion,
+      }));
+    }
+
+    // Reconstruir activities desde actividades_evaluacion si está vacío
+    let activities = data.activities || [];
+    if (activities.length === 0 && actByName[c.id]) {
+      const acts = Object.values(actByName[c.id]);
+      activities = acts.map((a) => ({
+        id: a.id,
+        component: a.componente || "ACD",
+        name: a.nombre || "",
+        desc: a.descripcion || "",
+        maxScore: a.puntaje_maximo != null ? Number(a.puntaje_maximo) : 0,
+        procedure: a.procedimiento || "",
+        racId: a.rac_id || "",
+        raauId: a.raau_id || "",
+      }));
+    } else if (activities.length > 0 && actByName[c.id]) {
+      // Reemplazar IDs con UUIDs
+      const map = actByName[c.id];
+      activities = activities.map((act) => {
+        const match = map[act.name];
+        if (match) return { ...act, id: match.id, racId: match.rac_id || act.racId, raauId: match.raau_id || act.raauId };
+        return act;
+      });
+    }
+
+    return {
+      id: c.id,
+      savedAt: data.savedAt || (c.created_at ? new Date(c.created_at).toLocaleString() : ""),
+      ownerEmail: data.ownerEmail || c.owner_email || "",
+      courseConfig: data.courseConfig,
+      selectedRACIds,
+      raauEntries,
+      activities,
+    };
+  });
+
+  // 6. Estudiantes por configuración
+  const { data: estudiantes } = await supabase
+    .from("estudiantes_configuracion")
+    .select("*")
+    .in("config_id", configIds);
+
+  if (estudiantes) {
+    for (const cfgId of configIds) {
+      const ests = estudiantes.filter((e) => e.config_id === cfgId);
+      result.studentsByConfig[cfgId] = ests.map((e) => ({
+        id: e.id,
+        cedula: e.cedula || "",
+        codigo: e.codigo_estudiante || "",
+        nombres: splitNombres(e.nombres || "").nombres,
+        apellidos: splitNombres(e.nombres || "").apellidos,
+        email: e.email || "",
+      }));
+    }
+  }
+
+  // 7. Notas por configuración → Array de {studentId, activityId, score}
+  const { data: notas } = await supabase
+    .from("notas_estudiantes")
+    .select("*")
+    .in("config_id", configIds);
+
+  if (notas) {
+    for (const cfgId of configIds) {
+      const notasCfg = notas.filter((n) => n.config_id === cfgId);
+      const arr = notasCfg.map((n) => ({
+        studentId: n.estudiante_id || n.estudiante_cedula,
+        activityId: n.actividad_id,
+        score: n.nota != null ? Number(n.nota) : null,
+      })).filter((n) => n.score != null);
+      if (arr.length > 0) result.gradesByConfig[cfgId] = arr;
+    }
+  }
+
+  return result;
+}
+
+function splitNombres(full) {
+  if (!full) return { nombres: "", apellidos: "" };
+  const parts = full.trim().split(/\s+/);
+  if (parts.length <= 2) return { nombres: parts[0] || "", apellidos: parts.slice(1).join(" ") };
+  const mid = Math.floor(parts.length / 2);
   return {
-    docentes: docentesRes.rows.filter((d) => d.rol !== "coordinador"),
-    teacherAssignments: asigRes.rows.map((r) => r.data),
-    savedConfigs: configuraciones,
-    studentsByConfig,
-    gradesByConfig,
+    nombres: parts.slice(0, mid).join(" "),
+    apellidos: parts.slice(mid).join(" "),
   };
 }
 
-// ---- Escritura (sincronización por alcance) ----
-// El coordinador sincroniza docentes y asignaciones (globales). Cualquier
-// usuario sincroniza SOLO sus propias configuraciones (+ estudiantes/notas).
+// ---- ESCRITURA ----
 export async function putStore(payload = {}) {
-  if (!pool) throw new Error("Base de datos no configurada (defina DATABASE_URL).");
+  if (!supabase) throw new Error("Supabase no configurado.");
   const email = payload.email || "";
   const role = payload.role || "";
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
+  const errors = [];
 
-    if (role === "coordinador" && Array.isArray(payload.docentes)) {
-      for (const d of payload.docentes) {
-        if (!d.email) continue;
-        if (d.password) {
-          // Contraseña nueva en texto plano -> se guarda hasheada.
-          await client.query(
-            `INSERT INTO docente(email,nombre,cedula,rol,password_hash)
-             VALUES ($1,$2,$3,$4,$5)
-             ON CONFLICT (email) DO UPDATE SET nombre=$2,cedula=$3,rol=$4,password_hash=$5,updated_at=now()`,
-            [d.email.toLowerCase(), d.nombre || d.name || "", d.cedula || "", d.rol || d.role || "docente", hashPassword(d.password)]
-          );
-        } else {
-          // Sin contraseña nueva: no tocar el hash existente.
-          await client.query(
-            `INSERT INTO docente(email,nombre,cedula,rol,password_hash)
-             VALUES ($1,$2,$3,$4,NULL)
-             ON CONFLICT (email) DO UPDATE SET nombre=$2,cedula=$3,rol=$4,updated_at=now()`,
-            [d.email.toLowerCase(), d.nombre || d.name || "", d.cedula || "", d.rol || d.role || "docente"]
-          );
+  // 1. Docentes (solo coordinador)
+  if (role === "coordinador" && Array.isArray(payload.docentes)) {
+    for (const d of payload.docentes) {
+      const record = {
+        email: (d.email || "").toLowerCase(),
+        cedula: d.cedula || "",
+        nombres: d.nombre || d.name || "",
+        rol: d.rol || d.role || "docente",
+      };
+      if (d.password) record.password_hash = hashPassword(d.password);
+      const { error } = await supabase.from("docentes_sistema").upsert(record, { onConflict: "email" });
+      if (error) errors.push(`docente ${record.email}: ${error.message}`);
+    }
+  }
+
+  // 2. Asignaciones (solo coordinador)
+  if (role === "coordinador" && Array.isArray(payload.teacherAssignments)) {
+    const { data: existing } = await supabase.from("asignaciones").select("id");
+    const existingIds = new Set((existing || []).map((a) => a.id));
+    const keepIds = new Set();
+    for (const a of payload.teacherAssignments) {
+      const id = a.id || crypto.randomUUID();
+      keepIds.add(id);
+      const { error } = await supabase.from("asignaciones").upsert({
+        id,
+        docente_email: a.docenteEmail || a.docente_email || "",
+        carrera: a.carrera || "",
+        asignatura: a.asignatura || "",
+        pao: String(a.pao || ""),
+        paralelo: String(a.paralelo || ""),
+        data: a,
+      }, { onConflict: "id" });
+      if (error) errors.push(`asignacion ${id}: ${error.message}`);
+    }
+    for (const oldId of existingIds) {
+      if (!keepIds.has(oldId)) await supabase.from("asignaciones").delete().eq("id", oldId);
+    }
+  }
+
+  // 3. Configuraciones + estudiantes + notas
+  if (Array.isArray(payload.savedConfigs)) {
+    const { data: existingCfgs } = await supabase.from("configuraciones_pao").select("id").eq("owner_email", email);
+    const existingCfgIds = new Set((existingCfgs || []).map((c) => c.id));
+    const keepCfgIds = new Set();
+
+    for (const c of payload.savedConfigs) {
+      const id = c.id || crypto.randomUUID();
+      keepCfgIds.add(id);
+      const cc = c.courseConfig || {};
+      const { error } = await supabase.from("configuraciones_pao").upsert({
+        id,
+        owner_email: c.ownerEmail || email,
+        carrera: cc.carrera || "",
+        asignatura: cc.asignatura || "",
+        pao: String(cc.pao || ""),
+        aporte: cc.aporte || "FIN DE CICLO",
+        data: {
+          savedAt: c.savedAt || new Date().toISOString(),
+          ownerEmail: c.ownerEmail || email,
+          courseConfig: cc,
+          selectedRACIds: c.selectedRACIds || [],
+          raauEntries: c.raauEntries || [],
+          activities: c.activities || [],
+        },
+      }, { onConflict: "id" });
+      if (error) errors.push(`config ${id}: ${error.message}`);
+    }
+
+    // 4. Estudiantes
+    if (payload.studentsByConfig && typeof payload.studentsByConfig === "object") {
+      for (const [configId, arr] of Object.entries(payload.studentsByConfig)) {
+        if (!keepCfgIds.has(configId)) continue;
+        await supabase.from("estudiantes_configuracion").delete().eq("config_id", configId);
+        if (Array.isArray(arr) && arr.length > 0) {
+          const rows = arr.map((s) => ({
+            config_id: configId,
+            cedula: s.cedula || "",
+            codigo_estudiante: s.codigo || "",
+            nombres: [s.nombres || "", s.apellidos || ""].filter(Boolean).join(" "),
+            email: s.email || "",
+            data_minima: s,
+          }));
+          const { error } = await supabase.from("estudiantes_configuracion").insert(rows);
+          if (error) errors.push(`estudiantes ${configId}: ${error.message}`);
         }
       }
     }
 
-    if (role === "coordinador" && Array.isArray(payload.teacherAssignments)) {
-      await client.query("DELETE FROM asignacion");
-      for (const a of payload.teacherAssignments) {
-        if (!a.id) continue;
-        await client.query(
-          `INSERT INTO asignacion(id,docente_email,carrera,asignatura,pao,paralelo,data)
-           VALUES ($1,$2,$3,$4,$5,$6,$7)
-           ON CONFLICT (id) DO UPDATE SET docente_email=$2,carrera=$3,asignatura=$4,pao=$5,paralelo=$6,data=$7,updated_at=now()`,
-          [a.id, a.docenteEmail || "", a.carrera || "", a.asignatura || "", String(a.pao || ""), String(a.paralelo || ""), a]
-        );
-      }
-    }
-
-    // Configuraciones del propietario (email). Reemplazo por alcance:
-    // borra las suyas que ya no estén y hace upsert de las enviadas.
-    if (Array.isArray(payload.savedConfigs)) {
-      const keepIds = payload.savedConfigs.map((c) => c.id).filter(Boolean);
-      if (keepIds.length) {
-        await client.query("DELETE FROM configuracion WHERE owner_email=$1 AND NOT (id = ANY($2))", [email, keepIds]);
-      } else {
-        await client.query("DELETE FROM configuracion WHERE owner_email=$1", [email]);
-      }
-      for (const c of payload.savedConfigs) {
-        if (!c.id) continue;
-        const cc = c.courseConfig || {};
-        await client.query(
-          `INSERT INTO configuracion(id,owner_email,carrera,asignatura,pao,data,saved_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7)
-           ON CONFLICT (id) DO UPDATE SET owner_email=$2,carrera=$3,asignatura=$4,pao=$5,data=$6,saved_at=$7,updated_at=now()`,
-          [c.id, c.ownerEmail || email, cc.carrera || "", cc.asignatura || "", String(cc.pao || ""), c, c.savedAt || ""]
-        );
-      }
-    }
-
-    // Estudiantes y notas por configuración (solo de las configuraciones enviadas).
-    if (payload.studentsByConfig && typeof payload.studentsByConfig === "object") {
-      for (const [configId, arr] of Object.entries(payload.studentsByConfig)) {
-        await client.query(
-          `INSERT INTO config_estudiantes(config_id,data) VALUES ($1,$2)
-           ON CONFLICT (config_id) DO UPDATE SET data=$2`,
-          [configId, JSON.stringify(arr || [])]
-        );
-      }
-    }
+    // 5. Notas (array de {studentId, activityId, score})
     if (payload.gradesByConfig && typeof payload.gradesByConfig === "object") {
       for (const [configId, arr] of Object.entries(payload.gradesByConfig)) {
-        await client.query(
-          `INSERT INTO config_notas(config_id,data) VALUES ($1,$2)
-           ON CONFLICT (config_id) DO UPDATE SET data=$2`,
-          [configId, JSON.stringify(arr || [])]
-        );
+        if (!keepCfgIds.has(configId)) continue;
+        if (!Array.isArray(arr) || arr.length === 0) continue;
+        await supabase.from("notas_estudiantes").delete().eq("config_id", configId);
+        // Obtener estudiante_id → cedula mapping
+        const { data: ests } = await supabase.from("estudiantes_configuracion").select("id,cedula").eq("config_id", configId);
+        const estByCedula = {};
+        const estById = {};
+        if (ests) {
+          ests.forEach((e) => {
+            if (e.cedula) estByCedula[e.cedula] = e.id;
+            estById[e.id] = e.id;
+          });
+        }
+        const rows = arr.map((g) => ({
+          config_id: configId,
+          estudiante_id: estById[g.studentId] || estByCedula[g.studentId] || null,
+          estudiante_cedula: g.studentId,
+          actividad_id: g.activityId,
+          nota: g.score != null ? Number(g.score) : null,
+        })).filter((r) => r.nota != null);
+        if (rows.length > 0) {
+          const { error } = await supabase.from("notas_estudiantes").insert(rows);
+          if (error) errors.push(`notas ${configId}: ${error.message}`);
+        }
       }
     }
 
-    await client.query("COMMIT");
-    return { ok: true };
-  } catch (err) {
-    await client.query("ROLLBACK");
-    throw err;
-  } finally {
-    client.release();
+    // Eliminar configs que ya no están
+    for (const oldId of existingCfgIds) {
+      if (!keepCfgIds.has(oldId)) await supabase.from("configuraciones_pao").delete().eq("id", oldId);
+    }
   }
+
+  return { ok: errors.length === 0, errors: errors.length > 0 ? errors : undefined };
 }
 
-// ---- Login verificado contra la BD ----
+// ---- Login ----
 export async function login(loginEmail, password) {
-  const r = await q("SELECT email,nombre,cedula,rol,password_hash FROM docente WHERE email=$1", [String(loginEmail || "").toLowerCase()]);
-  if (r.rowCount === 0) return null;
-  const u = r.rows[0];
-  if (!u.password_hash || !verifyPassword(password, u.password_hash)) return null;
-  return { email: u.email, name: u.nombre, cedula: u.cedula || "", role: u.rol, source: "db" };
+  const email = String(loginEmail || "").toLowerCase();
+  const { data } = await supabase
+    .from("docentes_sistema")
+    .select("*")
+    .eq("email", email)
+    .limit(1)
+    .single();
+  if (!data) return null;
+  if (!data.password_hash || !verifyPassword(password, data.password_hash)) return null;
+  return {
+    email: data.email,
+    name: data.nombres || "",
+    cedula: data.cedula || "",
+    role: data.rol || "docente",
+    source: "db",
+  };
 }
 
 export async function health() {
-  if (!pool) return { enabled: false };
-  await q("SELECT 1");
-  return { enabled: true };
+  if (!supabase) return { enabled: false };
+  const { error } = await supabase.from("docentes_sistema").select("id", { count: "exact", head: true }).limit(1);
+  return { enabled: true, error: error?.message || null };
 }

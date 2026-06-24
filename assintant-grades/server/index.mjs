@@ -241,20 +241,21 @@ const server = http.createServer(async (req, res) => {
   await run(res, () => handler(arg));
 });
 
-// Inicializa el esquema de la BD si hay DATABASE_URL configurada.
+// Inicializa el esquema de la BD si hay SUPABASE_URL configurada.
 if (db.enabled) {
   try {
     await db.ensureSchema();
-    console.log("[BFF] PostgreSQL: conectado y esquema listo.");
+    console.log("[BFF] Supabase: conectado y esquema listo.");
   } catch (err) {
-    console.error("[BFF] PostgreSQL: no se pudo inicializar:", err.message);
+    console.error("[BFF] Supabase: no se pudo inicializar:", err.message);
   }
 } else {
-  console.log("[BFF] PostgreSQL: NO configurado (defina DATABASE_URL). El frontend usará sessionStorage como respaldo.");
+  console.log("[BFF] Supabase: NO configurado (defina SUPABASE_URL y SUPABASE_KEY). El frontend usará localStorage como respaldo.");
 }
 
 server.listen(PORT, () => {
-  console.log(`[OASIS BFF] escuchando en http://localhost:${PORT}`);
-  console.log(`[OASIS BFF] servicios SOAP: ${oasis.config.base}`);
-  console.log(`[OASIS BFF] credenciales de servicio: ${oasis.config.hasCredentials ? "configuradas" : "NO configuradas (defina OASIS_USER / OASIS_PASS)"}`);
+  console.log(`[BFF] escuchando en http://localhost:${PORT}`);
+  console.log(`[BFF] servicios SOAP: ${oasis.config.base}`);
+  console.log(`[BFF] credenciales de servicio: ${oasis.config.hasCredentials ? "configuradas" : "NO configuradas (defina OASIS_USER / OASIS_PASS)"}`);
+  console.log(`[BFF] Supabase: ${db.enabled ? "conectado" : "NO configurado (defina SUPABASE_URL / SUPABASE_KEY)"}`);
 });
