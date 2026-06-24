@@ -120,7 +120,8 @@ export function pushToDb() {
 
 async function doPushToDb() {
   const u = _state.currentUser;
-  if (!u || !_dbReady) return;
+  if (!u) return;
+  if (!_dbReady) { _dbReady = true; }
 
   // Llamar persistActiveConfigData (definida en legacyRuntime) si existe
   if (typeof window.persistActiveConfigData === "function") {
@@ -164,67 +165,55 @@ async function doPushToDb() {
 
 export async function hydrateFromDb() {
   const u = _state.currentUser;
-  if (!u) return;
+  if (!u) { _dbReady = true; return; }
 
   let store;
   try {
     store = await oasis.getStore({ email: u.email, role: u.role });
   } catch {
+    _dbReady = true;
     return;
   }
-  if (!store) return;
+  if (!store) { _dbReady = true; return; }
   if (store.disabled) {
     _dbReady = true;
     return;
   }
 
-  // Docentes (global). Conservamos contraseñas locales de esta sesión si existen.
-  if (Array.isArray(store.docentes)) {
-    const byEmail = {};
+  // REEMPLAZAR estado local con datos de Supabase (solo si hay datos)
+  // Docentes: preservar contraseñas locales
+  if (Array.isArray(store.docentes) && store.docentes.length > 0) {
+    const localPasswords = {};
     (_state.docentes || []).forEach((d) => {
-      byEmail[d.email] = d;
+      if (d.password) localPasswords[d.email] = d.password;
     });
-    _state.docentes = store.docentes.map((d) => {
-      const local = byEmail[d.email];
-      return {
-        email: d.email,
-        nombre: d.nombre,
-        name: d.nombre,
-        cedula: d.cedula || "",
-        role: d.rol || "docente",
-        rol: d.rol || "docente",
-        password: (local && local.password) || "",
-      };
-    });
+    _state.docentes = store.docentes.map((d) => ({
+      email: d.email,
+      nombre: d.nombre,
+      name: d.nombre,
+      cedula: d.cedula || "",
+      role: d.rol || "docente",
+      rol: d.rol || "docente",
+      password: localPasswords[d.email] || "",
+    }));
   }
 
-  if (Array.isArray(store.teacherAssignments))
+  if (Array.isArray(store.teacherAssignments) && store.teacherAssignments.length > 0)
     _state.teacherAssignments = store.teacherAssignments;
 
-  if (Array.isArray(store.savedConfigs)) {
-    const dbById = {};
-    store.savedConfigs.forEach((c) => {
-      dbById[c.id] = c;
-    });
-    const merged = store.savedConfigs.slice();
-    (_state.savedConfigs || []).forEach((c) => {
-      if (!dbById[c.id]) merged.push(c);
-    });
-    _state.savedConfigs = merged;
-  }
+  if (Array.isArray(store.savedConfigs) && store.savedConfigs.length > 0)
+    _state.savedConfigs = store.savedConfigs;
 
-  if (store.studentsByConfig)
-    _state.studentsByConfig = Object.assign(
-      {},
-      _state.studentsByConfig,
-      store.studentsByConfig
-    );
-  if (store.gradesByConfig)
-    _state.gradesByConfig = Object.assign(
-      {},
-      _state.gradesByConfig,
-      store.gradesByConfig
-    );
+  if (store.studentsByConfig && Object.keys(store.studentsByConfig).length > 0)
+    _state.studentsByConfig = store.studentsByConfig;
+
+  if (store.gradesByConfig && Object.keys(store.gradesByConfig).length > 0)
+    _state.gradesByConfig = store.gradesByConfig;
+
+  // Si no hay activeConfigId pero hay configuraciones, activar la primera
+  if (!_state.activeConfigId && Array.isArray(_state.savedConfigs) && _state.savedConfigs.length > 0) {
+    _state.activeConfigId = _state.savedConfigs[0].id;
+  }
 
   if (_state.activeConfigId && typeof window.cargarPaoActivo === "function") {
     window.cargarPaoActivo();
