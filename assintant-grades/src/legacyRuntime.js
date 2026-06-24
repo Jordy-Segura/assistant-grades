@@ -785,7 +785,7 @@ export function initLegacyRuntime() {
         if (!STATE.courseConfig.periodoAcademico) STATE.courseConfig.periodoAcademico = p.descripcion;
         save();
         var el = document.getElementById('cfg-periodo');
-        if (el && !el.value) el.value = STATE.courseConfig.periodoAcademico;
+        if (el) el.value = STATE.courseConfig.periodoAcademico;
       }
     } catch { /* sin conexión: el período se ingresa manualmente */ }
   }
@@ -1216,7 +1216,9 @@ export function initLegacyRuntime() {
 
     var config = STATE.courseConfig;
     if (cfgStep === 0) {
-      document.getElementById('cfg-periodo').value = config.periodoAcademico || '';
+      var periodo = config.periodoAcademico || (STATE.oasisPeriodo && STATE.oasisPeriodo.descripcion) || '';
+      document.getElementById('cfg-periodo').value = periodo;
+      if (periodo && !config.periodoAcademico) config.periodoAcademico = periodo;
       var docenteDefault = config.docente || (STATE.currentUser && STATE.currentUser.name) || '';
       document.getElementById('cfg-docente').value = docenteDefault;
       document.getElementById('cfg-aporte').value = config.aporte || 'FIN DE CICLO';
