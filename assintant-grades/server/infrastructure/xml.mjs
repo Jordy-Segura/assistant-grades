@@ -1,7 +1,11 @@
-// Minimal, dependency-free XML -> JS parser tuned for the flat SOAP payloads
-// returned by the ESPOCH OASIS .asmx services. It handles nested elements,
-// repeated siblings (-> arrays), text content, self-closing tags and xsi:nil.
-// Namespaces prefixes (soap:, xsi:, ...) are stripped from element names.
+// ============================================================================
+// CAPA DE INFRAESTRUCTURA  ·  Utilidad de bajo nivel
+// ----------------------------------------------------------------------------
+// Parser XML mínimo y sin dependencias, afinado para las respuestas SOAP planas
+// de los servicios .asmx de OASIS (ESPOCH). Maneja elementos anidados, hermanos
+// repetidos (-> arreglos), texto, tags auto-cerrados y xsi:nil. Quita prefijos
+// de namespace (soap:, xsi:, ...) de los nombres de elemento.
+// ============================================================================
 
 function decodeEntities(text) {
   return text
@@ -19,7 +23,7 @@ function localName(name) {
   return i === -1 ? name : name.slice(i + 1);
 }
 
-// Tokenize into open / close / text events.
+// Tokeniza en eventos open / close / text.
 function tokenize(xml) {
   const tokens = [];
   let i = 0;
@@ -30,7 +34,7 @@ function tokenize(xml) {
       if (end === -1) break;
       let tag = xml.slice(i + 1, end);
       i = end + 1;
-      if (tag[0] === "?" || tag[0] === "!") continue; // declaration / comment / doctype
+      if (tag[0] === "?" || tag[0] === "!") continue; // declaración / comentario / doctype
       let selfClose = false;
       if (tag.endsWith("/")) {
         selfClose = true;
@@ -101,7 +105,7 @@ export function parseXml(xml) {
   return nodeToValue(root);
 }
 
-// Always return an array for a node that may be a single object, an array or absent.
+// Siempre devuelve un arreglo para un nodo que puede venir como objeto, arreglo o ausente.
 export function asArray(value) {
   if (value === undefined || value === null) return [];
   return Array.isArray(value) ? value : [value];

@@ -8,6 +8,7 @@ require $root . '/app/Config.php';
 require $root . '/app/Logger.php';
 require $root . '/app/Http.php';
 require $root . '/app/Soap.php';
+require $root . '/app/Mappers.php';
 require $root . '/app/OasisService.php';
 require $root . '/app/Database.php';
 require $root . '/app/Controllers.php';
@@ -76,7 +77,11 @@ $routes = [
     'POST /api/materias-docente' => fn($in) => $c->materiasDocente($in),
     'POST /api/alumnos-materia' => fn($in) => $c->alumnosMateria($in),
     'POST /api/notas' => fn($in) => $c->notas($in),
+    'POST /api/estudiante' => fn($in) => $c->estudiante($in),
+    'POST /api/estudiante-full' => fn($in) => $c->estudianteFull($in),
+    'POST /api/materias-estudiante' => fn($in) => $c->materiasEstudiante($in),
     'POST /api/login' => fn($in) => $c->login($in),
+    'POST /api/dev-login' => fn($in) => $c->devLogin($in),
     'GET /api/db/health' => fn($in) => $c->dbHealth($in),
     'GET /api/store' => fn($in) => $c->getStore($in),
     'PUT /api/store' => fn($in) => $c->putStore($in),

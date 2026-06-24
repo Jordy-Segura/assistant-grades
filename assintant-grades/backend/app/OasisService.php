@@ -6,6 +6,8 @@ declare(strict_types=1);
 final class OasisService
 {
     private Soap $soap;
+    /** Caché por petición de matrículas (código real) indexada por "carrera|periodo". */
+    private array $matriculaCache = [];
 
     public function __construct(Soap $soap)
     {
@@ -90,17 +92,122 @@ final class OasisService
             'strCodPeriodo' => $p['codPeriodo'] ?? '',
             'strCodMateria' => $p['codMateria'] ?? '',
         ]);
-        return array_map(fn($e) => [
-            'cedula' => $e['Cedula'] ?? '',
-            'nombres' => trim($e['Nombres'] ?? ''),
-            'apellidos' => trim($e['Apellidos'] ?? ''),
-        ], Soap::asList($r['Estudiante'] ?? null));
+        $alumnos = array_map([Mappers::class, 'mapAlumno'], Soap::asList($r['Estudiante'] ?? null));
+        // GetAlumnosMateria NO trae el código real: se completa cruzando por cédula
+        // con la matrícula de la carrera (GetTodasMatriculaEstudiantes).
+        $matriculas = $this->getTodasMatricula((string) ($p['codCarrera'] ?? ''), (string) ($p['codPeriodo'] ?? ''));
+        return Mappers::mergeCodigos($alumnos, $matriculas);
+    }
+
+    // Matrícula de TODA la carrera en un período: incluye el CÓDIGO real del estudiante.
+    // Cacheada por carrera+período dentro de la misma petición.
+    public function getTodasMatricula(string $codCarrera, string $codPeriodo): array
+    {
+        if ($codCarrera === '' || $codPeriodo === '') {
+            return [];
+        }
+        $key = $codCarrera . '|' . $codPeriodo;
+        if (isset($this->matriculaCache[$key])) {
+            return $this->matriculaCache[$key];
+        }
+        try {
+            $r = $this->soap->call('InfoCarrera', 'GetTodasMatriculaEstudiantes', [
+                'strCodCarrera' => $codCarrera,
+                'strCodPeriodo' => $codPeriodo,
+            ]);
+            $data = array_map([Mappers::class, 'mapMatricula'], Soap::asList($r['TodasMatriculaEstudiantes'] ?? null));
+        } catch (Throwable $e) {
+            $data = [];
+        }
+        $this->matriculaCache[$key] = $data;
+        return $data;
+    }
+
+    public function getDatosEstudiante(string $cedula): ?array
+    {
+        $r = $this->soap->call('InfoCarrera', 'GetDatosCompletosEstudiante', [
+            'strCedula' => Mappers::formatearCedula($cedula),
+        ]);
+        if (!is_array($r) || $r === []) {
+            return null;
+        }
+        return Mappers::mapEstudiante($r, $cedula);
+    }
+
+    public function getMateriasEstudiante(string $codCarrera, string $cedula, string $codPeriodo): array
+    {
+        $r = $this->soap->call('InfoCarrera', 'GetMateriasEstudiante', [
+            'CodCarrera' => $codCarrera,
+            'Cedula' => Mappers::formatearCedula($cedula),
+            'CodPeriodo' => $codPeriodo,
+        ]);
+        return array_map([Mappers::class, 'mapMateriaEstudiante'], Soap::asList($r['Materia'] ?? null));
+    }
+
+    // Datos completos + materias actuales + horario, con el código real del estudiante.
+    public function getEstudianteFull(string $cedula): array
+    {
+        $estudiante = null;
+        try {
+            $estudiante = $this->getDatosEstudiante($cedula);
+        } catch (Throwable $e) {
+            $estudiante = null;
+        }
+        $periodo = $this->getPeriodoActual();
+        $codPeriodo = $periodo['codigo'] ?? '';
+        if ($codPeriodo === '' || !$estudiante) {
+            return ['estudiante' => $estudiante, 'materias' => [], 'horario' => []];
+        }
+
+        // Prioriza Sede Orellana al buscar la carrera del estudiante.
+        $carreras = array_filter($this->getCarreras(), fn($c) => ($c['estado'] ?? '') === 'ABI');
+        $orellana = array_values(array_filter($carreras, fn($c) => stripos($c['nombre'] ?? '', 'ORELLANA') !== false));
+        $otras = array_values(array_filter($carreras, fn($c) => stripos($c['nombre'] ?? '', 'ORELLANA') === false));
+        $priorizadas = array_slice(array_merge($orellana, $otras), 0, 30);
+
+        $carreraEst = null;
+        $materias = [];
+        foreach ($priorizadas as $c) {
+            try {
+                $ms = $this->getMateriasEstudiante($c['codigo'], $cedula, $codPeriodo);
+            } catch (Throwable $e) {
+                $ms = [];
+            }
+            if (count($ms) > 0) {
+                $carreraEst = $c;
+                $materias = $ms;
+                break;
+            }
+        }
+
+        // Completa el código real del estudiante desde la matrícula de su carrera.
+        if ($carreraEst && ($estudiante['codigo'] ?? '') === '') {
+            $ced = Mappers::soloDigitos($cedula);
+            foreach ($this->getTodasMatricula($carreraEst['codigo'], $codPeriodo) as $m) {
+                if (Mappers::soloDigitos($m['cedula'] ?? '') === $ced && ($m['codigo'] ?? '') !== '') {
+                    $estudiante['codigo'] = $m['codigo'];
+                    break;
+                }
+            }
+        }
+
+        $horario = [];
+        foreach ($materias as $m) {
+            try {
+                $dictados = $this->getDictados($carreraEst['codigo'], $m['codMateria']);
+            } catch (Throwable $e) {
+                $dictados = [];
+            }
+            $horario[] = ['codMateria' => $m['codMateria'], 'materia' => $m['materia'], 'dictados' => $dictados];
+        }
+
+        return ['estudiante' => $estudiante, 'periodo' => $periodo, 'carrera' => $carreraEst, 'materias' => $materias, 'horario' => $horario];
     }
 
     public function getMateriasDocente(string $codCarrera, string $cedula, string $codPeriodo): array
     {
         $r = $this->soap->call('InfoCarrera', 'GetMateriasDocente', [
-            'CodCarrera' => $codCarrera, 'Cedula' => $cedula, 'CodPeriodo' => $codPeriodo,
+            'CodCarrera' => $codCarrera, 'Cedula' => Mappers::formatearCedula($cedula), 'CodPeriodo' => $codPeriodo,
         ]);
         return array_map(fn($m) => ['codigo' => $m['Codigo'] ?? '', 'nombre' => $m['Nombre'] ?? ''], Soap::asList($r['Materia'] ?? null));
     }
@@ -108,7 +215,7 @@ final class OasisService
     public function getNotas(string $codCarrera, string $cedula): array
     {
         $r = $this->soap->call('InfoCarrera', 'GetUltimasNotasEstudianteCarrera', [
-            'strCodCarrera' => $codCarrera, 'strCedula' => $cedula,
+            'strCodCarrera' => $codCarrera, 'strCedula' => Mappers::formatearCedula($cedula),
         ]);
         return array_map(fn($n) => [
             'codMateria' => $n['CodMateria'] ?? '',
@@ -163,7 +270,7 @@ final class OasisService
         }
         $periodo = ($in['codPeriodo'] ?? '') ?: $this->getPeriodoActual()['codigo'];
         $r = $this->soap->call('InfoCarrera', 'GetHorariosDocente', [
-            'strCodCarrera' => $cod, 'strCedula' => $in['cedula'] ?? '', 'strCodPeriodo' => $periodo,
+            'strCodCarrera' => $cod, 'strCedula' => Mappers::formatearCedula($in['cedula'] ?? ''), 'strCodPeriodo' => $periodo,
         ]);
         $clases = array_map(fn($h) => [
             'codMateria' => $h['CodMateria'] ?? '',
@@ -176,33 +283,16 @@ final class OasisService
         return ['codCarrera' => $cod, 'codPeriodo' => $periodo, 'clases' => $clases];
     }
 
-    // ---- Resolución (nombres -> códigos) ----
-    private static function norm(?string $text): string
-    {
-        $map = [
-            'Á' => 'A', 'À' => 'A', 'Ä' => 'A', 'Â' => 'A', 'É' => 'E', 'È' => 'E', 'Ë' => 'E', 'Ê' => 'E',
-            'Í' => 'I', 'Ì' => 'I', 'Ï' => 'I', 'Î' => 'I', 'Ó' => 'O', 'Ò' => 'O', 'Ö' => 'O', 'Ô' => 'O',
-            'Ú' => 'U', 'Ù' => 'U', 'Ü' => 'U', 'Û' => 'U', 'Ñ' => 'N', 'Ç' => 'C',
-            'á' => 'a', 'à' => 'a', 'ä' => 'a', 'â' => 'a', 'é' => 'e', 'è' => 'e', 'ë' => 'e', 'ê' => 'e',
-            'í' => 'i', 'ì' => 'i', 'ï' => 'i', 'î' => 'i', 'ó' => 'o', 'ò' => 'o', 'ö' => 'o', 'ô' => 'o',
-            'ú' => 'u', 'ù' => 'u', 'ü' => 'u', 'û' => 'u', 'ñ' => 'n', 'ç' => 'c',
-        ];
-        $s = strtr((string) $text, $map);
-        $s = strtoupper($s);
-        $s = preg_replace('/[^A-Z0-9 ]/', ' ', $s);
-        $s = preg_replace('/\s+/', ' ', (string) $s);
-        return trim((string) $s);
-    }
-
+    // ---- Resolución (nombres -> códigos) ----  ·  norm() vive en Mappers (dominio).
     public function resolverCarrera(?string $nombre, ?string $facultad): ?array
     {
         $carreras = array_filter($this->getCarreras(), fn($c) => ($c['estado'] ?? '') === 'ABI');
-        $target = self::norm($nombre);
+        $target = Mappers::norm($nombre);
         if ($target === '') {
             return null;
         }
-        $wantOrellana = strpos(self::norm($facultad), 'ORELLANA') !== false;
-        $baseName = fn($n) => trim((string) preg_replace('/ SEDE.*$| MORONA.*$/', '', self::norm($n)));
+        $wantOrellana = strpos(Mappers::norm($facultad), 'ORELLANA') !== false;
+        $baseName = fn($n) => trim((string) preg_replace('/ SEDE.*$| MORONA.*$/', '', Mappers::norm($n)));
         $matches = [];
         foreach ($carreras as $c) {
             $cn = $baseName($c['nombre']);
@@ -215,7 +305,7 @@ final class OasisService
         }
         if ($wantOrellana) {
             foreach ($matches as $c) {
-                if (strpos(self::norm($c['nombre']), 'ORELLANA') !== false) {
+                if (strpos(Mappers::norm($c['nombre']), 'ORELLANA') !== false) {
                     return $c;
                 }
             }
@@ -237,17 +327,17 @@ final class OasisService
             throw new SoapFaultException('No se encontró la carrera "' . ($in['carrera'] ?? '') . '" en OASIS.');
         }
         $malla = $this->getMalla($carrera['codigo']);
-        $objetivo = self::norm($in['asignatura'] ?? '');
+        $objetivo = Mappers::norm($in['asignatura'] ?? '');
         $materia = null;
         foreach ($malla as $m) {
-            if (self::norm($m['materia']) === $objetivo) {
+            if (Mappers::norm($m['materia']) === $objetivo) {
                 $materia = $m;
                 break;
             }
         }
         if (!$materia) {
             foreach ($malla as $m) {
-                $mn = self::norm($m['materia']);
+                $mn = Mappers::norm($m['materia']);
                 if ($mn !== '' && (strpos($mn, $objetivo) !== false || strpos($objetivo, $mn) !== false)) {
                     $materia = $m;
                     break;
@@ -261,11 +351,11 @@ final class OasisService
         if (!$dictados) {
             throw new SoapFaultException('"' . $materia['materia'] . '" no tiene paralelos activos este período.');
         }
-        $docNorm = self::norm($in['docente'] ?? '');
+        $docNorm = Mappers::norm($in['docente'] ?? '');
         $elegido = null;
         if ($docNorm !== '') {
             foreach ($dictados as $d) {
-                if (strpos(self::norm($d['docente']['apellidos'] . ' ' . $d['docente']['nombres']), $docNorm) !== false) {
+                if (strpos(Mappers::norm($d['docente']['apellidos'] . ' ' . $d['docente']['nombres']), $docNorm) !== false) {
                     $elegido = $d;
                     break;
                 }

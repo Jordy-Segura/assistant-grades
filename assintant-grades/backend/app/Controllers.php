@@ -76,6 +76,44 @@ final class Controllers
         return $this->oasis->getNotas($in['codCarrera'] ?? '', $in['cedula'] ?? '');
     }
 
+    public function estudiante(array $in): ?array
+    {
+        Http::require($in, ['cedula']);
+        return $this->oasis->getDatosEstudiante((string) $in['cedula']);
+    }
+
+    public function estudianteFull(array $in): array
+    {
+        Http::require($in, ['cedula']);
+        return $this->oasis->getEstudianteFull((string) $in['cedula']);
+    }
+
+    public function materiasEstudiante(array $in): array
+    {
+        return $this->oasis->getMateriasEstudiante(
+            (string) ($in['codCarrera'] ?? ''),
+            (string) ($in['cedula'] ?? ''),
+            (string) ($in['codPeriodo'] ?? '')
+        );
+    }
+
+    // Login de desarrollo/pruebas: omite OASIS (login = "dev.docente"|"dev.coordinador"|"dev.admin").
+    public function devLogin(array $in): array
+    {
+        $roleMap = ['docente' => 'DOCENTE', 'coordinador' => 'COORDINADOR', 'admin' => 'ADMIN'];
+        $login = (string) ($in['login'] ?? '');
+        $roleLabel = 'docente';
+        if ($login === 'dev.coordinador') {
+            $roleLabel = 'coordinador';
+        } elseif ($login === 'dev.admin') {
+            $roleLabel = 'admin';
+        }
+        return [
+            'roles' => [['codigoCarrera' => '001', 'nombreRol' => $roleMap[$roleLabel] ?? 'DOCENTE']],
+            'perfil' => ['cedula' => '9999999999', 'apellidos' => 'Desarrollo', 'nombres' => 'Usuario ' . $roleLabel, 'email' => $login . '@espoch.edu.ec'],
+        ];
+    }
+
     public function login(array $in): array
     {
         Http::require($in, ['login', 'password']);

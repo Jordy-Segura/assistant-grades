@@ -778,13 +778,14 @@ export function initLegacyRuntime() {
 
   async function autoLoadPeriodo() {
     try {
-      var p = await oasis.getPeriodoActual();
+      // Reutiliza el período ya consultado a OASIS; si no hay, lo pide al BFF.
+      var p = (STATE.oasisPeriodo && STATE.oasisPeriodo.descripcion) ? STATE.oasisPeriodo : await oasis.getPeriodoActual();
       if (p && p.descripcion) {
         STATE.oasisPeriodo = p;
         if (!STATE.courseConfig.periodoAcademico) STATE.courseConfig.periodoAcademico = p.descripcion;
         save();
         var el = document.getElementById('cfg-periodo');
-        if (el && !el.value) el.value = STATE.courseConfig.periodoAcademico;
+        if (el && !el.value) el.value = STATE.courseConfig.periodoAcademico || p.descripcion;
       }
     } catch { /* sin conexión: el período se ingresa manualmente */ }
   }
@@ -959,13 +960,20 @@ export function initLegacyRuntime() {
       STATE.activities = [];
     }
     renderCfgStep();
+    // El período académico se consume de OASIS al entrar a Configuración.
+    autoLoadPeriodo();
   }
 
   function applyDefaultTemplateIfNeeded() {
-    if (!STATE.savedConfigs || STATE.savedConfigs.length === 0) return;
-    var template = STATE.savedConfigs[0];
-    if (!STATE.courseConfig.periodoAcademico) STATE.courseConfig.periodoAcademico = template.courseConfig.periodoAcademico || 'SEPTIEMBRE 2025 - FEBRERO 2026';
-    if (!STATE.courseConfig.aporte) STATE.courseConfig.aporte = template.courseConfig.aporte || 'FIN DE CICLO';
+    // El período académico vigente proviene de OASIS; nunca de un valor fijo.
+    var oasisDesc = (STATE.oasisPeriodo && STATE.oasisPeriodo.descripcion) || '';
+    var template = (STATE.savedConfigs && STATE.savedConfigs.length > 0) ? STATE.savedConfigs[0] : null;
+    if (!STATE.courseConfig.periodoAcademico) {
+      STATE.courseConfig.periodoAcademico = oasisDesc || (template && template.courseConfig.periodoAcademico) || '';
+    }
+    if (!STATE.courseConfig.aporte) {
+      STATE.courseConfig.aporte = (template && template.courseConfig.aporte) || 'FIN DE CICLO';
+    }
   }
 
   function renderManagedConfigSection() {
@@ -1215,7 +1223,7 @@ export function initLegacyRuntime() {
 
     var config = STATE.courseConfig;
     if (cfgStep === 0) {
-      document.getElementById('cfg-periodo').value = config.periodoAcademico || '';
+      document.getElementById('cfg-periodo').value = config.periodoAcademico || (STATE.oasisPeriodo && STATE.oasisPeriodo.descripcion) || '';
       var docenteDefault = config.docente || (STATE.currentUser && STATE.currentUser.name) || '';
       document.getElementById('cfg-docente').value = docenteDefault;
       document.getElementById('cfg-aporte').value = config.aporte || 'FIN DE CICLO';
@@ -1249,6 +1257,39 @@ export function initLegacyRuntime() {
     renderSavedConfigs();
   }
 
+  // Una configuración es única por carrera + PAO + asignatura + aporte + período.
+  // Distintos aportes (MEDIO/FIN/RECUPERACIÓN) o períodos SÍ son válidos por separado.
+  function configKey(cc) {
+    cc = cc || {};
+    var n = function (v) { return String(v == null ? '' : v).trim().toUpperCase(); };
+    return [n(cc.carrera), n(cc.pao), n(cc.asignatura), n(cc.aporte), n(cc.periodoAcademico)].join('||');
+  }
+
+  function findDuplicateConfig(courseConfig, excludeId) {
+    var key = configKey(courseConfig);
+    var email = STATE.currentUser && STATE.currentUser.email;
+    return (STATE.savedConfigs || []).find(function (cfg) {
+      if (excludeId && cfg.id === excludeId) return false;
+      if (email && (cfg.ownerEmail || '') !== email) return false;
+      return configKey(cfg.courseConfig) === key;
+    }) || null;
+  }
+
+  function notifyDuplicateConfig(dup) {
+    var cc = dup.courseConfig || {};
+    openModal('Configuración duplicada',
+      '<p style="font-size:.85rem;color:var(--gray-700);margin-bottom:8px">Ya existe una configuración para esta misma asignatura, PAO, aporte y período. No tiene sentido configurarla otra vez.</p>' +
+      '<div style="font-size:.8rem;color:var(--gray-600);background:var(--gray-100);border-radius:8px;padding:10px 12px;line-height:1.7">' +
+      '<strong>' + escapeHtml(cc.asignatura || '—') + '</strong><br>' +
+      escapeHtml(cc.carrera || '—') + ' · PAO ' + escapeHtml(String(cc.pao || '—')) + '<br>' +
+      escapeHtml(cc.aporte || '—') + ' · ' + escapeHtml(cc.periodoAcademico || '—') +
+      '</div>',
+      [
+        { label: 'Editar la existente', cls: 'btn-edit', action: function () { closeModal(); editSavedConfigName(dup.id); } },
+        { label: 'Entendido', cls: 'btn-primary', action: 'close' }
+      ]);
+  }
+
   function cfgPrev() { if (cfgStep > 0) { cfgStep--; renderCfgStep(); } }
   function cfgNext() {
     if (cfgStep === 0) {
@@ -1258,14 +1299,15 @@ export function initLegacyRuntime() {
       var docenteVal = document.getElementById('cfg-docente').value;
       if (!carreraVal || !asignaturaVal) { showToast('Seleccione carrera y asignatura antes de continuar.', 'error'); return; }
       if (!periodoVal) { showToast('Ingrese el período académico.', 'error'); return; }
-      var duplicate = (STATE.savedConfigs || []).find(function (cfg) {
-        var cc = cfg.courseConfig || {};
-        return cc.carrera === carreraVal && cc.pao === document.getElementById('cfg-pao').value && cc.asignatura === asignaturaVal;
-      });
-      if (duplicate && duplicate.id !== STATE.activeConfigId && duplicate.id !== STATE.editingConfigId) {
-        showToast('Esta materia ya fue configurada. Use la configuración guardada.', 'error');
-        return;
-      }
+      var tentativa = {
+        carrera: carreraVal,
+        pao: document.getElementById('cfg-pao').value,
+        asignatura: asignaturaVal,
+        aporte: document.getElementById('cfg-aporte').value,
+        periodoAcademico: periodoVal
+      };
+      var duplicate = findDuplicateConfig(tentativa, STATE.editingConfigId || STATE.activeConfigId);
+      if (duplicate) { notifyDuplicateConfig(duplicate); return; }
       STATE.courseConfig.periodoAcademico = periodoVal;
       STATE.courseConfig.facultad = document.getElementById('cfg-facultad').value;
       STATE.courseConfig.carrera = carreraVal;
@@ -1315,6 +1357,11 @@ export function initLegacyRuntime() {
     }
     var savedId = '';
     var wasUpdate = existingIdx >= 0;
+    // Guarda final: nunca crear un PAO duplicado (misma carrera/PAO/asignatura/aporte/período).
+    if (!wasUpdate) {
+      var dupSave = findDuplicateConfig(STATE.courseConfig, '');
+      if (dupSave) { notifyDuplicateConfig(dupSave); return; }
+    }
     if (wasUpdate) {
       var existing = STATE.savedConfigs[existingIdx];
       existing.savedAt = new Date().toLocaleString();
@@ -1993,7 +2040,6 @@ export function initLegacyRuntime() {
       return;
     }
     var c = STATE.courseConfig || {};
-    var actNames = STATE.activities.map(function (a) { return a.name; });
     var totalMax = STATE.activities.reduce(function (s, a) { return s + (Number(a.maxScore) || 0); }, 0);
     var totalExpected = STATE.students.length * STATE.activities.length;
     var totalEntered = 0;
@@ -2005,11 +2051,8 @@ export function initLegacyRuntime() {
     var avg = allTotals.length > 0 ? (allTotals.reduce(function (a, b) { return a + b; }, 0) / allTotals.length).toFixed(2) : '—';
     var pct = totalExpected > 0 ? Math.round(totalEntered / totalExpected * 100) : 0;
 
-    // Build a self-contained HTML page embedded in the QR as a data URI.
-    // When scanned, the phone opens this HTML in the browser.
-    var actCount = STATE.activities.length;
+    // Versión imprimible completa (se abre con el botón del modal / Exportar PDF).
     var compHeaders = '';
-    var compRowspan = 2;
     COMPONENTS.forEach(function (comp) {
       var acts = STATE.activities.filter(function (a) { return a.component === comp; });
       if (acts.length === 0) return;
@@ -2041,7 +2084,39 @@ export function initLegacyRuntime() {
       '<p style="margin-top:8px;font-size:10px;color:#888;text-align:center">Promedio: ' + avg + '/' + totalMax.toFixed(1) + ' | Notas: ' + totalEntered + '/' + totalExpected + ' (' + pct + '%)</p>' +
       '</body></html>';
 
-    var data = 'data:text/html;charset=utf-8,' + encodeURIComponent(html);
+    // El QR NO puede contener toda la página HTML (excede su capacidad y no se genera).
+    // Codificamos un resumen compacto de notas que sí cabe y es escaneable; el detalle
+    // completo se abre con "Abrir versión imprimible" o con Exportar PDF.
+    function buildQrPayload() {
+      var aprob = allTotals.filter(function (t) { return t >= 7; }).length;
+      var lines = [];
+      lines.push('CALIFICACIONES - ' + (c.asignatura || ''));
+      lines.push((c.carrera || '') + ' | ' + (c.aporte || '') + ' | PAO ' + (c.pao || ''));
+      lines.push('Periodo: ' + (c.periodoAcademico || '') + ' | ' + new Date().toLocaleDateString());
+      lines.push('');
+      STATE.students.forEach(function (s, idx) {
+        var tot = studentTotal(s.id);
+        lines.push((idx + 1) + '. ' + (s.codigo ? s.codigo + ' ' : '') + s.apellidos + ' ' + s.nombres + ' = ' + tot.toFixed(2) + (tot >= 7 ? ' (A)' : ' (R)'));
+      });
+      lines.push('');
+      lines.push('Promedio ' + avg + '/' + totalMax.toFixed(1) + ' | Aprobados ' + aprob + '/' + STATE.students.length);
+      var full = lines.join('\n');
+      // Tope de seguridad: por encima de esto el QR deja de ser escaneable desde un móvil.
+      if (full.length <= 1800) return full;
+      return lines.slice(0, 4).join('\n') + '\n' + STATE.students.length + ' estudiantes\n' +
+        'Promedio ' + avg + '/' + totalMax.toFixed(1) + ' | Aprobados ' + aprob + '/' + STATE.students.length +
+        '\n(Detalle completo en Exportar PDF)';
+    }
+    var qrPayload = buildQrPayload();
+
+    // Abre la versión imprimible completa para guardar/imprimir PDF desde el navegador.
+    function abrirImprimible() {
+      var w = window.open('', '_blank');
+      if (!w) { showToast('Permita ventanas emergentes para abrir la versión imprimible.', 'error'); return; }
+      w.document.write(html);
+      w.document.close();
+      w.focus();
+    }
 
     var expandedLines = [];
     expandedLines.push('========================================');
@@ -2075,25 +2150,28 @@ export function initLegacyRuntime() {
       '<div id="qr-code-container" style="display:inline-block;background:#fff;padding:10px;border-radius:8px;margin-bottom:10px;border:1px solid var(--gray-200)">' +
       '<div id="qr-spinner" style="padding:40px;color:var(--gray-400)">Generando QR...</div>' +
       '</div>' +
-      '<p style="font-size:.78rem;color:var(--gray-500);margin:0">Escanee el QR para abrir pagina con calificaciones. Desde el navegador puede guardar/ imprimir PDF.</p>' +
+      '<p style="font-size:.78rem;color:var(--gray-500);margin:0">Escanee el QR para ver el resumen de calificaciones en el teléfono. Para el detalle completo use "Abrir versión imprimible" o Exportar PDF.</p>' +
       '<p style="font-size:.7rem;color:var(--gray-400);margin-top:6px">' + escapeHtml(c.asignatura || '') + ' · ' + escapeHtml(c.carrera || '') + ' · ' + new Date().toLocaleString() + '</p>' +
       '<div style="margin-top:8px;max-height:140px;overflow:auto;text-align:left;font-family:monospace;font-size:.6rem;background:var(--gray-100);padding:8px;border-radius:6px;white-space:pre;color:var(--gray-600)">' + escapeHtml(expanded) + '</div>' +
       '</div>';
 
     openModal('Codigo QR - ' + (c.asignatura || 'Calificaciones'), modalBody,
-      [{ label: 'Cerrar', cls: 'btn-primary', action: 'close' }]
+      [
+        { label: 'Abrir versión imprimible', cls: 'btn-edit', action: abrirImprimible },
+        { label: 'Cerrar', cls: 'btn-primary', action: 'close' }
+      ]
     );
 
-    // Load QR library dynamically and generate QR in the modal
+    // Carga la librería QR y genera el código a partir del resumen compacto.
     if (window.QRCode) {
-      generateQRInline(data);
+      generateQRInline(qrPayload);
     } else {
       var script = document.createElement('script');
       script.src = 'https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js';
-      script.onload = function () { generateQRInline(data); };
+      script.onload = function () { generateQRInline(qrPayload); };
       script.onerror = function () {
-        document.getElementById('qr-spinner').innerHTML = 'Error al cargar libreria QR.';
-        document.getElementById('qr-spinner').parentNode.innerHTML = '<img src="https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=' + encodeURIComponent(data) + '" alt="QR" style="max-width:250px;border-radius:8px" />';
+        var sp = document.getElementById('qr-spinner');
+        if (sp) sp.parentNode.innerHTML = '<img src="https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=' + encodeURIComponent(qrPayload) + '" alt="QR" style="max-width:250px;border-radius:8px" />';
       };
       document.head.appendChild(script);
     }
@@ -2104,11 +2182,11 @@ export function initLegacyRuntime() {
         if (!container) return;
         container.innerHTML = '';
         var canvas = document.createElement('canvas');
-        canvas.style.width = '220px';
-        canvas.style.height = '220px';
+        canvas.style.width = '240px';
+        canvas.style.height = '240px';
         container.parentNode.appendChild(canvas);
         container.remove();
-        QRCode.toCanvas(canvas, text, { width: 220, margin: 1, color: { dark: '#1a1a2e', light: '#ffffff' } }, function (err) {
+        QRCode.toCanvas(canvas, text, { width: 240, margin: 1, errorCorrectionLevel: 'L', color: { dark: '#1a1a2e', light: '#ffffff' } }, function (err) {
           if (err) {
             canvas.parentNode.innerHTML = '<img src="https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=' + encodeURIComponent(text) + '" alt="QR" style="max-width:250px;border-radius:8px" />';
           }

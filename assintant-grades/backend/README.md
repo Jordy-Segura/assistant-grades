@@ -8,6 +8,7 @@ con la base de datos; el navegador solo intercambia JSON con él.
 ```
 Presentación     public/index.php (front controller + router) · app/Controllers.php
 Aplicación       app/OasisService.php  (lógica de negocio + resolución)
+Dominio          app/Mappers.php  (Data Mapper + DTO, correo/código institucional)
 Infraestructura  app/Soap.php (cliente SOAP) · app/Database.php (PostgreSQL/PDO)
 Transversal      app/Config.php · app/Logger.php · app/Http.php (CORS, validación)
 ```
@@ -87,4 +88,11 @@ Quedó como referencia. Con PHP ya no lo necesitas; puedes borrar la carpeta
 `GET /api/health`, `/api/periodo-actual`, `/api/facultades`, `/api/carreras`,
 `/api/db/health` · `POST /api/nomina`, `/api/docentes-carrera`,
 `/api/horario-docente`, `/api/materias-docente`, `/api/alumnos-materia`,
-`/api/notas`, `/api/login`, `/api/db-login` · `GET/PUT /api/store`.
+`/api/notas`, `/api/estudiante`, `/api/estudiante-full`,
+`/api/materias-estudiante`, `/api/login`, `/api/dev-login`, `/api/db-login`
+· `GET/PUT /api/store`.
+
+> El código real del estudiante se obtiene de `GetTodasMatriculaEstudiantes` y se
+> cruza por cédula con la nómina (`GetAlumnosMateria` no trae código). El correo
+> usa el de OASIS solo si coincide con el nombre; si OASIS devuelve un placeholder,
+> se deriva el institucional `primernombre.primerapellido@espoch.edu.ec`.
