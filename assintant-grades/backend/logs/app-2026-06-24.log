@@ -248,3 +248,32 @@
 [2026-06-24T07:37:11+00:00] INFO Config: DATABASE_URL vacía — la app usará localStorage como respaldo
 [2026-06-24T07:37:11+00:00] INFO Request {"method":"POST","path":"\/api\/export-cache"}
 [2026-06-24T07:37:11+00:00] WARNING Ruta no encontrada {"route":"POST \/api\/export-cache"}
+[2026-06-24T11:49:28+00:00] INFO Config: OASIS_USER/OASIS_PASS vacías — operaciones autenticadas usarán mock data
+[2026-06-24T11:49:28+00:00] INFO Config: DATABASE_URL vacía — la app usará localStorage como respaldo
+[2026-06-24T11:49:28+00:00] INFO Request {"method":"GET","path":"\/api\/store"}
+[2026-06-24T11:49:29+00:00] INFO Config: OASIS_USER/OASIS_PASS vacías — operaciones autenticadas usarán mock data
+[2026-06-24T11:49:29+00:00] INFO Config: DATABASE_URL vacía — la app usará localStorage como respaldo
+[2026-06-24T11:49:29+00:00] INFO Config: OASIS_USER/OASIS_PASS vacías — operaciones autenticadas usarán mock data
+[2026-06-24T11:49:29+00:00] INFO Config: DATABASE_URL vacía — la app usará localStorage como respaldo
+[2026-06-24T11:49:29+00:00] INFO Request {"method":"PUT","path":"\/api\/store"}
+[2026-06-24T11:49:44+00:00] INFO Config: OASIS_USER/OASIS_PASS vacías — operaciones autenticadas usarán mock data
+[2026-06-24T11:49:44+00:00] INFO Config: DATABASE_URL vacía — la app usará localStorage como respaldo
+[2026-06-24T11:49:44+00:00] INFO Config: OASIS_USER/OASIS_PASS vacías — operaciones autenticadas usarán mock data
+[2026-06-24T11:49:44+00:00] INFO Config: DATABASE_URL vacía — la app usará localStorage como respaldo
+[2026-06-24T11:49:44+00:00] INFO Request {"method":"POST","path":"\/api\/alumnos-materia"}
+[2026-06-24T11:49:45+00:00] INFO Config: OASIS_USER/OASIS_PASS vacías — operaciones autenticadas usarán mock data
+[2026-06-24T11:49:45+00:00] INFO Config: DATABASE_URL vacía — la app usará localStorage como respaldo
+[2026-06-24T11:49:45+00:00] INFO Config: OASIS_USER/OASIS_PASS vacías — operaciones autenticadas usarán mock data
+[2026-06-24T11:49:45+00:00] INFO Config: DATABASE_URL vacía — la app usará localStorage como respaldo
+[2026-06-24T11:49:45+00:00] INFO Request {"method":"PUT","path":"\/api\/store"}
+[2026-06-24T11:49:47+00:00] INFO Config: OASIS_USER/OASIS_PASS vacías — operaciones autenticadas usarán mock data
+[2026-06-24T11:49:47+00:00] INFO Config: DATABASE_URL vacía — la app usará localStorage como respaldo
+[2026-06-24T11:49:47+00:00] INFO Request {"method":"PUT","path":"\/api\/store"}
+[2026-06-24T11:49:49+00:00] INFO Config: OASIS_USER/OASIS_PASS vacías — operaciones autenticadas usarán mock data
+[2026-06-24T11:49:49+00:00] INFO Config: DATABASE_URL vacía — la app usará localStorage como respaldo
+[2026-06-24T11:49:49+00:00] INFO Request {"method":"PUT","path":"\/api\/store"}
+[2026-06-24T11:49:53+00:00] INFO Config: OASIS_USER/OASIS_PASS vacías — operaciones autenticadas usarán mock data
+[2026-06-24T11:49:53+00:00] INFO Config: DATABASE_URL vacía — la app usará localStorage como respaldo
+[2026-06-24T11:49:53+00:00] INFO Config: OASIS_USER/OASIS_PASS vacías — operaciones autenticadas usarán mock data
+[2026-06-24T11:49:53+00:00] INFO Config: DATABASE_URL vacía — la app usará localStorage como respaldo
+[2026-06-24T11:49:53+00:00] INFO Request {"method":"PUT","path":"\/api\/store"}

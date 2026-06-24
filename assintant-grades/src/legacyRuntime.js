@@ -217,6 +217,31 @@ export function initLegacyRuntime() {
     pushToDb();
   }
 
+  function clonePlain(value, fallback) {
+    try { return JSON.parse(JSON.stringify(value)); } catch { return fallback; }
+  }
+
+  function getRacsCatalogForConfig(config) {
+    var c = (config && config.courseConfig) || STATE.courseConfig || {};
+    var carreraData = DB_ESPOCH[c.carrera] || null;
+    var racs = (carreraData && carreraData.racs) || CAREER_RACS || [];
+    return clonePlain(racs, []);
+  }
+
+  function getRaauCatalogForConfig(config) {
+    var c = (config && config.courseConfig) || STATE.courseConfig || {};
+    var carreraData = DB_ESPOCH[c.carrera] || null;
+    var asignaturaData = carreraData && carreraData.asignaturas && carreraData.asignaturas[c.asignatura];
+    return clonePlain((asignaturaData && asignaturaData.raau) || [], []);
+  }
+
+  function enrichConfigVectors(config) {
+    if (!config) return config;
+    config.racsCatalog = getRacsCatalogForConfig(config);
+    config.raauCatalog = getRaauCatalogForConfig(config);
+    return config;
+  }
+
   // Empuja (con "debounce") los datos propios del usuario a PostgreSQL vía BFF.
   function pushToDb() {
     if (!STATE.currentUser) return;
@@ -228,7 +253,10 @@ export function initLegacyRuntime() {
     if (!u || !dbReady) return; // aún no hidratado: no escribir (evita borrar datos)
     // Mantén sincronizado el config activo antes de enviar.
     persistActiveConfigData();
-    var misConfigs = (STATE.savedConfigs || []).filter(function (c) { return (c.ownerEmail || '') === u.email; });
+    var misConfigs = (STATE.savedConfigs || []).filter(function (c) {
+      return u.role === 'coordinador' || u.role === 'admin' || (c.ownerEmail || '') === u.email;
+    });
+    misConfigs.forEach(enrichConfigVectors);
     var ids = {};
     misConfigs.forEach(function (c) { ids[c.id] = true; });
     if (STATE.activeConfigId) ids[STATE.activeConfigId] = true;
@@ -513,10 +541,10 @@ export function initLegacyRuntime() {
       set('sb-pao', 'PAO —');
       set('sb-aporte', '—');
       set('sb-docente', (STATE.currentUser && STATE.currentUser.name) || '—');
-      var roleEl = document.getElementById('sb-role');
-      if (roleEl) {
-        var roleTxt = ROLE_LABEL[(STATE.currentUser && STATE.currentUser.role) || ''] || 'Invitado';
-        roleEl.textContent = roleTxt;
+      var inactiveRoleEl = document.getElementById('sb-role');
+      if (inactiveRoleEl) {
+        var inactiveRoleTxt = ROLE_LABEL[(STATE.currentUser && STATE.currentUser.role) || ''] || 'Invitado';
+        inactiveRoleEl.textContent = inactiveRoleTxt;
       }
       renderPaoSidebarList();
       return;
@@ -657,19 +685,123 @@ export function initLegacyRuntime() {
     var coordItems = ['nav-coord-asig', 'nav-coord-rac', 'nav-coord-raau', 'nav-coord-docentes'];
     coordItems.forEach(function (id) {
       var item = document.getElementById(id);
-      if (item) item.style.display = '';
+      if (item) item.style.display = role === 'docente' ? 'none' : '';
     });
     var consultaItems = ['nav-consulta-divider', 'nav-consulta-section',
       'nav-consulta-sede', 'nav-consulta-info', 'nav-consulta-est'];
     consultaItems.forEach(function (id) {
       var item = document.getElementById(id);
-      if (item) item.style.display = (role === 'coordinador' || role === 'admin') ? '' : 'none';
+      if (item) item.style.display = '';
     });
   }
 
   function setAuthLoading(loading) {
     var btn = document.querySelector('.auth-main-btn');
     if (btn) { btn.disabled = loading; btn.textContent = loading ? 'Verificando…' : 'Ingresar'; }
+  }
+
+  var loginSessionHeartbeat = null;
+
+  function getLoginSessionId() {
+    var key = 'espoch_active_session_id';
+    try {
+      var existing = sessionStorage.getItem(key);
+      if (existing) return existing;
+      var id = (window.crypto && window.crypto.randomUUID)
+        ? window.crypto.randomUUID()
+        : ('sess_' + Date.now() + '_' + Math.random().toString(36).slice(2));
+      sessionStorage.setItem(key, id);
+      return id;
+    } catch {
+      return 'sess_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+    }
+  }
+
+  function getSessionApiUrl(path) {
+    var base = oasis.apiBaseUrl || '';
+    if (base.endsWith('/api') && path.indexOf('/api/') === 0) return base + path.slice(4);
+    return base + path;
+  }
+
+  function sessionPayload(user) {
+    return {
+      email: user && user.email,
+      sessionId: getLoginSessionId(),
+      userAgent: (navigator && navigator.userAgent) || '',
+      name: user && user.name,
+      role: user && user.role,
+      cedula: user && user.cedula
+    };
+  }
+
+  async function claimLoginSession(user) {
+    if (!user || !user.email) return;
+    var res = await oasis.claimSession(sessionPayload(user));
+    if (res && res.disabled) return;
+    if (!res || res.ok === false) {
+      throw new Error('Esta cuenta ya tiene una sesion activa. Cierre la otra sesion o espere unos minutos.');
+    }
+  }
+
+  function stopLoginSessionHeartbeat() {
+    if (loginSessionHeartbeat) clearInterval(loginSessionHeartbeat);
+    loginSessionHeartbeat = null;
+  }
+
+  function forceLogoutBySession() {
+    stopLoginSessionHeartbeat();
+    STATE.currentUser = null;
+    save();
+    applyRoleUI();
+    updateSidebar();
+    var msgEl = document.getElementById('auth-msg');
+    if (msgEl) msgEl.textContent = 'La sesion se cerro porque la cuenta se abrio en otro lugar.';
+    showToast('Sesion cerrada por ingreso en otro dispositivo.', 'error');
+  }
+
+  function startLoginSessionHeartbeat(user) {
+    stopLoginSessionHeartbeat();
+    loginSessionHeartbeat = setInterval(function () {
+      if (!STATE.currentUser || !user || STATE.currentUser.email !== user.email) return;
+      oasis.claimSession(sessionPayload(user)).then(function (res) {
+        if (res && !res.disabled && res.ok === false) forceLogoutBySession();
+      }).catch(function () {
+        /* el siguiente latido reintenta */
+      });
+    }, 60000);
+  }
+
+  function releaseLoginSession(user, useBeacon) {
+    if (!user || !user.email) return;
+    var payload = sessionPayload(user);
+    if (useBeacon && navigator && navigator.sendBeacon && window.Blob) {
+      try {
+        navigator.sendBeacon(getSessionApiUrl('/api/session/release'), new Blob([JSON.stringify(payload)], { type: 'application/json' }));
+        return;
+      } catch {
+        /* usa fetch normal abajo */
+      }
+    }
+    oasis.releaseSession(payload).catch(function () {});
+  }
+
+  async function completeLogin(user) {
+    await claimLoginSession(user);
+    finishLogin(user);
+    startLoginSessionHeartbeat(user);
+  }
+
+  function validatePasswordForm(password, confirm) {
+    var p = String(password || '');
+    if (p !== String(confirm || '')) return 'La confirmacion no coincide.';
+    if (p.length < 8) return 'La contrasena debe tener al menos 8 caracteres.';
+    if (/\s/.test(p)) return 'La contrasena no debe tener espacios.';
+    if (!/[A-Za-z]/.test(p) || !/\d/.test(p)) return 'Use letras y numeros en la contrasena.';
+    return '';
+  }
+
+  function passwordHelpHtml() {
+    return '<div style="font-size:.72rem;color:var(--gray-500);margin-top:4px">Minimo 8 caracteres, con letras y numeros, sin espacios.</div>';
   }
 
   function deriveRole(roles) {
@@ -750,22 +882,32 @@ export function initLegacyRuntime() {
     }
     // 1) Cuentas locales en memoria (coordinador / docentes de esta sesión). Offline-proof.
     var local = findLocalUser(email, pass);
-    if (local) { finishLogin(local); return; }
+    if (local) {
+      setAuthLoading(true);
+      try {
+        await completeLogin(local);
+      } catch (err) {
+        if (msgEl) msgEl.textContent = err.message || 'No se pudo iniciar sesion.';
+      } finally {
+        setAuthLoading(false);
+      }
+      return;
+    }
     setAuthLoading(true);
     try {
       // 2) Dev/test login (cuentas empiezan con "dev." - bypass OASIS).
       if (email.indexOf('dev.') === 0) {
         var devResult = await oasis.devLogin(email, pass);
-        if (devResult) { finishLogin(buildUserFromOasis(email, devResult)); return; }
+        if (devResult) { await completeLogin(buildUserFromOasis(email, devResult)); return; }
       }
       // 3) Login contra la base de datos (docentes creados por el coordinador, otra PC).
       try {
         var dbUser = await oasis.loginDb(email, pass);
-        if (dbUser && !dbUser.disabled) { finishLogin(dbUser); return; }
+        if (dbUser && !dbUser.disabled) { await completeLogin(dbUser); return; }
       } catch { /* credenciales no válidas en BD o sin BD: probamos OASIS */ }
       // 4) Autenticación real contra OASIS.
       var result = await oasis.login(email, pass);
-      finishLogin(buildUserFromOasis(email, result));
+      await completeLogin(buildUserFromOasis(email, result));
     } catch (err) {
       if (msgEl) {
         msgEl.textContent = err && err.offline
@@ -802,6 +944,9 @@ export function initLegacyRuntime() {
   }
 
   function doLogout() {
+    var previousUser = STATE.currentUser;
+    releaseLoginSession(previousUser, true);
+    stopLoginSessionHeartbeat();
     STATE.currentUser = null;
     save();
     applyRoleUI();
@@ -813,17 +958,38 @@ export function initLegacyRuntime() {
   }
 
   // Configuración de perfil del usuario actual (datos + cambio de contraseña).
+  async function resumeStoredSession() {
+    var user = STATE.currentUser;
+    if (!user) return;
+    try {
+      await claimLoginSession(user);
+      startLoginSessionHeartbeat(user);
+      renderDashboard();
+      autoLoadPeriodo();
+      hydrateFromDb();
+    } catch (err) {
+      stopLoginSessionHeartbeat();
+      STATE.currentUser = null;
+      save();
+      applyRoleUI();
+      updateSidebar();
+      var msgEl = document.getElementById('auth-msg');
+      if (msgEl) msgEl.textContent = err.message || 'Sesion cerrada.';
+    }
+  }
+
   function openProfile() {
     var u = STATE.currentUser;
     if (!u) return;
     var local = findUserByEmail(u.email);
+    var canChangePassword = Boolean(local) || u.source === 'db' || u.source === 'local';
     var body = '<div style="font-size:.82rem;color:var(--gray-700);line-height:1.8">' +
       '<div><strong>Nombre:</strong> ' + (u.name || '—') + '</div>' +
       '<div><strong>Correo:</strong> ' + (u.email || '—') + '</div>' +
       (u.cedula ? '<div><strong>Cédula:</strong> ' + u.cedula + '</div>' : '') +
       '<div><strong>Rol:</strong> ' + (ROLE_LABEL[u.role] || u.role) + '</div>' +
       '<div><strong>Origen:</strong> ' + (u.source === 'oasis' ? 'OASIS (institucional)' : 'Local') + '</div></div>';
-    if (local) {
+    if (canChangePassword) {
       body += '<div style="margin-top:14px;border-top:1px solid var(--gray-200);padding-top:12px">' +
         '<div style="font-weight:600;font-size:.82rem;margin-bottom:8px">Cambiar mi contraseña</div>' +
         '<div class="form-group"><input class="form-input" id="prof-pass" type="text" placeholder="Nueva contraseña"></div></div>';
@@ -835,7 +1001,7 @@ export function initLegacyRuntime() {
     if (u.cedula && misAsig.length) {
       actions.push({ label: 'Ver mi horario', cls: 'btn-edit', action: function () { closeModal(); verHorario(u.name, u.cedula, misAsig); } });
     }
-    if (local) {
+    if (canChangePassword) {
       actions.push({ label: 'Guardar contraseña', cls: 'btn-success', action: function () {
         var p = document.getElementById('prof-pass').value.trim();
         if (!p) { showToast('Ingrese una contraseña.', 'error'); return; }
@@ -846,6 +1012,43 @@ export function initLegacyRuntime() {
       } });
     }
     openModal('Mi perfil', body, actions);
+    if (canChangePassword) {
+      var passInput = document.getElementById('prof-pass');
+      if (passInput) {
+        passInput.outerHTML =
+          '<label class="form-label">Contrasena actual</label><input class="form-input" id="prof-current-pass" type="password" autocomplete="current-password" style="margin-bottom:8px">' +
+          '<label class="form-label">Nueva contrasena</label><input class="form-input" id="prof-pass" type="password" autocomplete="new-password" style="margin-bottom:8px">' +
+          '<label class="form-label">Confirmar nueva contrasena</label><input class="form-input" id="prof-pass-confirm" type="password" autocomplete="new-password">' +
+          passwordHelpHtml();
+      }
+      (window._modalActions || []).forEach(function (action) {
+        if (!action || String(action.label || '').indexOf('Guardar') !== 0 || action.cls !== 'btn-success') return;
+        action.label = 'Guardar contrasena';
+        action.action = async function () {
+          var current = document.getElementById('prof-current-pass').value.trim();
+          var p = document.getElementById('prof-pass').value.trim();
+          var confirm = document.getElementById('prof-pass-confirm').value.trim();
+          if (!current || !p || !confirm) { showToast('Complete clave actual, nueva clave y confirmacion.', 'error'); return; }
+          var validation = validatePasswordForm(p, confirm);
+          if (validation) { showToast(validation, 'error'); return; }
+          try {
+            var res = await oasis.updateDbPassword({ email: u.email, currentPassword: current, newPassword: p });
+            if (res && res.disabled) {
+              if (!local || local.password !== current) { showToast('La clave actual no es correcta.', 'error'); return; }
+            }
+            if (local) local.password = p;
+            if (COORDINADOR.email === u.email) COORDINADOR.password = p;
+            save();
+            closeModal();
+            showToast('Contrasena actualizada.', 'success');
+          } catch (err) {
+            showToast((err && err.message) || 'No se pudo actualizar la contrasena.', 'error');
+          }
+        };
+      });
+      var saveBtn = document.querySelector('#modal-actions .btn-success');
+      if (saveBtn) saveBtn.textContent = 'Guardar contrasena';
+    }
   }
 
   function onCarreraChange() {
@@ -1356,7 +1559,6 @@ export function initLegacyRuntime() {
     if (targetId) {
       existingIdx = STATE.savedConfigs.findIndex(function (c) { return c.id === targetId; });
     }
-    var savedId = '';
     var wasUpdate = existingIdx >= 0;
     // Guarda final: nunca crear un PAO duplicado (misma carrera/PAO/asignatura/aporte/período).
     if (!wasUpdate) {
@@ -1370,7 +1572,7 @@ export function initLegacyRuntime() {
       existing.selectedRACIds = STATE.selectedRACIds.slice();
       existing.raauEntries = JSON.parse(JSON.stringify(STATE.raauEntries));
       existing.activities = JSON.parse(JSON.stringify(STATE.activities));
-      savedId = existing.id;
+      enrichConfigVectors(existing);
     } else {
       var snapshot = {
         id: 'cfg_' + Date.now(),
@@ -1381,12 +1583,11 @@ export function initLegacyRuntime() {
         raauEntries: JSON.parse(JSON.stringify(STATE.raauEntries)),
         activities: JSON.parse(JSON.stringify(STATE.activities))
       };
+      enrichConfigVectors(snapshot);
       STATE.savedConfigs.unshift(snapshot);
       if (STATE.savedConfigs.length > 8) STATE.savedConfigs = STATE.savedConfigs.slice(0, 8);
-      savedId = snapshot.id;
     }
     // NO activar automáticamente — el PAO solo se activa desde el dropdown "MIS PAOs"
-    var isEditingActiveConfig = wasUpdate && savedId === STATE.activeConfigId;
     STATE.editingConfigId = '';
     // Si hay un PAO activo, recargar sus datos (puede ser el que se editó, u otro)
     if (STATE.activeConfigId) {
@@ -1408,7 +1609,7 @@ export function initLegacyRuntime() {
           addRecentActivity('OASIS: ' + parts.join(', '), 'student');
           showToast(parts.join(', ') + ' desde OASIS', 'success');
         }
-      } catch (e) {
+      } catch {
         showToast('Guardado. No se pudo conectar con OASIS para cargar estudiantes.', 'error');
       }
     }
@@ -2192,7 +2393,7 @@ export function initLegacyRuntime() {
             canvas.parentNode.innerHTML = '<img src="https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=' + encodeURIComponent(text) + '" alt="QR" style="max-width:250px;border-radius:8px" />';
           }
         });
-      } catch (e) {
+      } catch {
         var c2 = document.getElementById('qr-code-container');
         if (c2) c2.innerHTML = '<img src="https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=' + encodeURIComponent(text) + '" alt="QR" style="max-width:250px;border-radius:8px" />';
       }
@@ -2396,7 +2597,7 @@ export function initLegacyRuntime() {
       var name = fileSlug([meta.asignatura, meta.aporte, kind || 'calificaciones'].filter(Boolean).join('_'));
       doc.save(name + '.pdf');
       showToast('PDF generado.', 'success');
-    } catch (err) {
+    } catch {
       showToast('No se pudo generar PDF automatico. Revise la conexion a internet para cargar la libreria PDF.', 'error');
     }
   }
@@ -2461,7 +2662,7 @@ export function initLegacyRuntime() {
         };
         document.head.appendChild(script);
       }
-    } catch (err) {
+    } catch {
       var sp = document.getElementById('qr-spinner');
       if (sp) sp.textContent = 'No se pudo crear el enlace QR. Verifique que el BFF este ejecutandose.';
       showToast('No se pudo crear el enlace QR de descarga.', 'error');
@@ -2472,30 +2673,6 @@ export function initLegacyRuntime() {
   function exportReportExcel() { exportPayloadExcel('report'); }
   function exportReportPDF() { exportPayloadPDF('report'); }
   function showReportQR() { showExportQR('report'); }
-
-  // Agrega estudiantes evitando duplicados por cédula. Devuelve cuántos se agregaron.
-  function mergeStudents(alumnos) {
-    var normalizeCed = function (v) { return String(v || '').replace(/[^0-9]/g, ''); };
-    var existing = STATE.students.map(function (s) { return normalizeCed(s.cedula); });
-    var nuevos = (alumnos || [])
-      .filter(function (a) { return normalizeCed(a.cedula) && existing.indexOf(normalizeCed(a.cedula)) === -1; })
-      .map(function (a) {
-        return {
-          id: 's' + Date.now() + Math.random().toString(36).slice(2, 6),
-          codigo: a.codigo || '',
-          cedula: a.cedula,
-          apellidos: (a.apellidos || '').toUpperCase(),
-          nombres: (a.nombres || '').toUpperCase()
-        };
-      });
-    if (nuevos.length) {
-      STATE.students = STATE.students.concat(nuevos);
-      persistActiveConfigData();
-      save();
-      renderEstudiantes();
-    }
-    return nuevos.length;
-  }
 
   // Sincronización con OASIS: agrega nuevos, actualiza datos existentes, conserva calificaciones.
   async function showOasisImport() {
@@ -2542,6 +2719,15 @@ export function initLegacyRuntime() {
       };
       if (c.codCarrera && c.codMateria && c.codNivel && c.codParalelo) {
         var codPeriodo = c.codPeriodo || (STATE.oasisPeriodo && STATE.oasisPeriodo.codigo) || '';
+        if (!codPeriodo) {
+          var periodoActual = await oasis.getPeriodoActual();
+          codPeriodo = (periodoActual && periodoActual.codigo) || '';
+          if (codPeriodo) {
+            STATE.oasisPeriodo = periodoActual;
+            c.codPeriodo = codPeriodo;
+            saveCodesToConfigs({ codPeriodo: codPeriodo });
+          }
+        }
         if (!codPeriodo) {
           setImportStatus('No hay código de período disponible. Intente importar manualmente.', true);
           showOasisImportManual();
@@ -2773,6 +2959,16 @@ export function initLegacyRuntime() {
       var alumnos, r;
       if (c.codCarrera && c.codMateria && c.codNivel && c.codParalelo) {
         var codPeriodo = c.codPeriodo || (STATE.oasisPeriodo && STATE.oasisPeriodo.codigo) || '';
+        if (!codPeriodo) {
+          var periodoActual = await oasis.getPeriodoActual();
+          codPeriodo = (periodoActual && periodoActual.codigo) || '';
+          if (codPeriodo) {
+            STATE.oasisPeriodo = periodoActual;
+            c.codPeriodo = codPeriodo;
+            if (paoId === STATE.activeConfigId) STATE.courseConfig.codPeriodo = codPeriodo;
+            save();
+          }
+        }
         if (!codPeriodo) return result;
         alumnos = await oasis.getAlumnosMateria({
           codCarrera: c.codCarrera, codNivel: c.codNivel, codParalelo: c.codParalelo,
@@ -2792,7 +2988,6 @@ export function initLegacyRuntime() {
       if (!alumnos || alumnos.length === 0) return result;
       var normalizeCed = function (v) { return String(v || '').replace(/[^0-9]/g, ''); };
       var existingStudents = STATE.studentsByConfig[paoId] || [];
-      var existingGrades = STATE.gradesByConfig[paoId] || [];
       var cedToStudent = {};
       existingStudents.forEach(function (s) { cedToStudent[normalizeCed(s.cedula)] = s; });
       var toAdd = [];
@@ -3042,6 +3237,7 @@ export function initLegacyRuntime() {
     html += '</tbody></table>';
     document.getElementById('cal-table-wrap').innerHTML = html;
     updateReportAvailability();
+    setTimeout(triggerAnomalyDetection, 100);
   }
 
   function onGradeInput(el) {
@@ -3078,6 +3274,7 @@ export function initLegacyRuntime() {
       setTimeout(function () { btn.style.background = ''; btn.innerHTML = 'Guardar'; }, 2000);
     }
     showToast('Calificaciones guardadas', 'success');
+    setTimeout(triggerAnomalyDetection, 200);
   }
 
   function renderReporte(confirmed) {
@@ -3442,6 +3639,7 @@ export function initLegacyRuntime() {
       raauEntries: mapped.map(function (r, i) { return { id: 'raau_auto_' + i + '_' + Date.now(), code: r.code, description: r.description, racId: r.racId }; }),
       activities: []
     };
+    enrichConfigVectors(snapshot);
     STATE.savedConfigs.unshift(snapshot);
     save();
     renderCoordinacion();
@@ -3462,6 +3660,31 @@ export function initLegacyRuntime() {
         renderCoordinacion('asignaturas');
         showToast('Docente creado correctamente.', 'success');
       }}]);
+    var newPassInput = document.getElementById('coord-new-doc-pass');
+    if (newPassInput) {
+      newPassInput.outerHTML =
+        '<input class="form-input" id="coord-new-doc-pass" type="password" autocomplete="new-password" placeholder="Clave para el docente" style="margin-bottom:8px">' +
+        '<label class="form-label">Confirmar contrasena</label><input class="form-input" id="coord-new-doc-pass-confirm" type="password" autocomplete="new-password">' +
+        passwordHelpHtml();
+    }
+    (window._modalActions || []).forEach(function (action) {
+      if (!action || action.label !== 'Crear' || action.cls !== 'btn-success') return;
+      action.action = function () {
+        var name = document.getElementById('coord-new-doc-name').value.trim();
+        var email = document.getElementById('coord-new-doc-email').value.trim().toLowerCase();
+        var pass = document.getElementById('coord-new-doc-pass').value.trim();
+        var confirm = document.getElementById('coord-new-doc-pass-confirm').value.trim();
+        if (!name || !email || !pass || !confirm) { showToast('Complete nombre, correo, clave y confirmacion.', 'error'); return; }
+        var validation = validatePasswordForm(pass, confirm);
+        if (validation) { showToast(validation, 'error'); return; }
+        if (findUserByEmail(email)) { showToast('Ya existe un usuario con ese correo.', 'error'); return; }
+        STATE.docentes.push({ email: email, password: pass, role: 'docente', name: name, cedula: '' });
+        save();
+        closeModal();
+        renderCoordinacion('asignaturas');
+        showToast('Docente creado correctamente.', 'success');
+      };
+    });
   }
 
   function coordAddAsignatura() {
@@ -3654,6 +3877,28 @@ export function initLegacyRuntime() {
         renderCoordinacion('asignaturas');
         showToast('Contraseña asignada a ' + d.name, 'success');
       }}]);
+    var setPassInput = document.getElementById('coord-set-pass');
+    if (setPassInput) {
+      setPassInput.outerHTML =
+        '<input class="form-input" id="coord-set-pass" type="password" autocomplete="new-password" placeholder="Contrasena para el docente" style="margin-bottom:8px">' +
+        '<label class="form-label">Confirmar contrasena</label><input class="form-input" id="coord-set-pass-confirm" type="password" autocomplete="new-password">' +
+        passwordHelpHtml();
+    }
+    (window._modalActions || []).forEach(function (action) {
+      if (!action || action.label !== 'Guardar' || action.cls !== 'btn-success') return;
+      action.action = function () {
+        var pass = document.getElementById('coord-set-pass').value.trim();
+        var confirm = document.getElementById('coord-set-pass-confirm').value.trim();
+        if (!pass || !confirm) { showToast('Ingrese y confirme la contrasena.', 'error'); return; }
+        var validation = validatePasswordForm(pass, confirm);
+        if (validation) { showToast(validation, 'error'); return; }
+        d.password = pass;
+        save();
+        closeModal();
+        renderCoordinacion('asignaturas');
+        showToast('Contrasena asignada a ' + d.name, 'success');
+      };
+    });
   }
 
   function coordManualRAC() {
@@ -3859,8 +4104,6 @@ export function initLegacyRuntime() {
   // ================================================================
   // MÓDULO: Sede Orellana — Explorador académico con acordeones
   // ================================================================
-  var consultaSedeCache = {};
-
   function renderConsultaSede() {
     var target = document.getElementById('consulta-sede-content');
     if (!target) return;
@@ -3964,7 +4207,7 @@ export function initLegacyRuntime() {
       } else {
         var rows = await Promise.all(docentesDeMateria.map(async function (dm) {
           var nombreDoc = ((dm.docente.nombres || '') + ' ' + (dm.docente.apellidos || '')).trim() || dm.docente.cedula;
-          var estudiantesHtml = '';
+          var estudiantesHtml;
           try {
             var periodo = await oasis.getPeriodoActual();
             var alumnos = await oasis.getAlumnosMateria({
@@ -4012,7 +4255,6 @@ export function initLegacyRuntime() {
     var tree = document.getElementById('csede-tree');
     if (tree) {
       tree.innerHTML = '';
-      consultaSedeCache = {};
     }
     csedeLoadSubjects();
   }
@@ -4077,6 +4319,12 @@ export function initLegacyRuntime() {
 
   var _cinfoCarreras = [];
 
+  function cinfoLocalCarreras() {
+    return Object.keys(DB_ESPOCH || {}).map(function (name) {
+      return { nombre: name, codigo: name.replace(/[^A-Z0-9]/gi, '').slice(0, 10).toUpperCase() || name };
+    });
+  }
+
   function cinfoRenderCarreras(filtro) {
     var el = document.getElementById('cinfo-carreras');
     if (!el) return;
@@ -4113,7 +4361,12 @@ export function initLegacyRuntime() {
       }
       cinfoFiltrar();
     } catch (err) {
-      el.innerHTML = '<div style="font-size:.82rem;color:var(--red)">Error: ' + (err.message || '') + '</div>';
+      _cinfoCarreras = cinfoLocalCarreras();
+      cinfoFiltrar();
+      var warn = document.createElement('div');
+      warn.style.cssText = 'font-size:.75rem;color:var(--amber);padding:8px 0 0';
+      warn.textContent = 'Mostrando catalogo local porque OASIS no respondio: ' + (err.message || 'error de conexion');
+      el.appendChild(warn);
     }
   }
 
@@ -4385,21 +4638,12 @@ export function initLegacyRuntime() {
     }
   };
 
-  // Llamar detección después de renderizar calificaciones
-  var origRenderGradeTable = renderGradeTable;
-  renderGradeTable = function () {
-    origRenderGradeTable();
-    setTimeout(triggerAnomalyDetection, 100);
-  };
-
-  var origCalSave = calSave;
-  calSave = function () {
-    origCalSave();
-    setTimeout(triggerAnomalyDetection, 200);
-  };
-
   window.closeModal = closeModal;
   window.closeSuccessModal = closeSuccessModal;
+  window.getPaoActivo = getPaoActivo;
+  window.cargarDatosDelPao = cargarDatosDelPao;
+  window.showSuccessModal = showSuccessModal;
+  window.navigateToNewConfig = navigateToNewConfig;
   window.onCarreraChange = onCarreraChange;
   window.onPaoChange = onPaoChange;
   window.onAsignaturaChange = onAsignaturaChange;
@@ -4416,6 +4660,7 @@ export function initLegacyRuntime() {
   window.editActivity = editActivity;
   window.renderStudentTable = renderStudentTable;
   window.renderGradeTable = renderGradeTable;
+  window.persistActiveConfigData = persistActiveConfigData;
   window.exportStudentsPDF = exportStudentsPDF;
   window.exportGradesExcel = exportGradesExcel;
   window.exportGradesPDF = function () { exportPayloadPDF('grades'); };
@@ -4483,10 +4728,6 @@ export function initLegacyRuntime() {
   if (asig) asig.addEventListener('change', onAsignaturaChange);
 
   // Los botones del wizard ya están conectados desde React (App.jsx) para evitar doble ejecución.
-
-  document.querySelectorAll('.nav-item').forEach(function (el) {
-    el.addEventListener('click', function () { navigate(el.dataset.page); });
-  });
 
   function activePageId() { var p = document.querySelector('.page.active'); return p ? p.id : ''; }
 
@@ -4567,7 +4808,11 @@ export function initLegacyRuntime() {
     });
   });
 
+  window.addEventListener('beforeunload', function () {
+    releaseLoginSession(STATE.currentUser, true);
+  });
+
   applyRoleUI();
   updateSidebar();
-  if (STATE.currentUser) { renderDashboard(); autoLoadPeriodo(); hydrateFromDb(); }
+  if (STATE.currentUser) resumeStoredSession();
 }

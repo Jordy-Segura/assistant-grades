@@ -128,7 +128,7 @@ async function doPushToDb() {
   }
 
   const misConfigs = (_state.savedConfigs || []).filter(
-    (c) => (c.ownerEmail || "") === u.email
+    (c) => u.role === "coordinador" || u.role === "admin" || (c.ownerEmail || "") === u.email
   );
   const ids = {};
   misConfigs.forEach((c) => {

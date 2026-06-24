@@ -5,6 +5,8 @@ const callGlobal = (name, ...args) => {
 export default function Sidebar({ onNavClick }) {
   const handleNavClick = (event) => {
     event.preventDefault();
+    const page = event.currentTarget?.dataset?.page;
+    if (page) callGlobal("navigate", page);
     if (onNavClick) onNavClick();
   };
 
@@ -78,8 +80,8 @@ export default function Sidebar({ onNavClick }) {
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><path d="M20 8v6"/><path d="M23 11h-6"/></svg>
           Docentes por Asignatura
         </a>
-        <div className="sidebar-nav-divider"></div>
-        <div className="sidebar-nav-section">Consultas</div>
+        <div className="sidebar-nav-divider" id="nav-consulta-divider"></div>
+        <div className="sidebar-nav-section" id="nav-consulta-section">Consultas</div>
         <a className="nav-item" data-page="consulta-sede" id="nav-consulta-sede" href="#consulta-sede" onClick={handleNavClick}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
           Sede Orellana

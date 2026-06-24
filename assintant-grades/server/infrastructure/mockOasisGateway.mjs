@@ -23,8 +23,17 @@ const MOCK_MATERIAS_POR_CARRERA = {
   ITIO: [
     { codMateria: "TEI1TB10", materia: "METODOLOGIA DE LA INVESTIGACION", codNivel: "2", nivel: "SEGUNDO" },
     { codMateria: "TEI1TP16", materia: "FUNDAMENTOS DE BASE DE DATOS", codNivel: "3", nivel: "TERCERO" },
-    { codMateria: "TEI1TB26", materia: "METODOS NUMERICOS", codNivel: "4", nivel: "CUARTO" },
+    { codMateria: "TEI1TB20", materia: "INGLES IV", codNivel: "4", nivel: "CUARTO" },
+    { codMateria: "TEI1TB22", materia: "MATEMATICA AVANZADA", codNivel: "4", nivel: "CUARTO" },
+    { codMateria: "TEI1TP23", materia: "FUNDAMENTOS DE REDES", codNivel: "4", nivel: "CUARTO" },
     { codMateria: "TEI1TP24", materia: "DISENO DE EXPERIENCIA DE USUARIO", codNivel: "4", nivel: "CUARTO" },
+    { codMateria: "TEI1TB25", materia: "ADMINISTRACION DE BASE DE DATOS", codNivel: "4", nivel: "CUARTO" },
+    { codMateria: "TEI1TB26", materia: "METODOS NUMERICOS", codNivel: "4", nivel: "CUARTO" },
+    { codMateria: "TEI1TB27", materia: "GESTION ADMINISTRATIVA", codNivel: "4", nivel: "CUARTO" },
+    { codMateria: "TEI1TP28", materia: "CONMUTACION Y ENRUTAMIENTO", codNivel: "5", nivel: "QUINTO" },
+    { codMateria: "TEI1TP30", materia: "TECNOLOGIA WEB", codNivel: "5", nivel: "QUINTO" },
+    { codMateria: "TEI1TP31", materia: "BIG DATA", codNivel: "5", nivel: "QUINTO" },
+    { codMateria: "TEI1TP33", materia: "INFRAESTRUCTURA TI", codNivel: "5", nivel: "QUINTO" },
   ],
   IAGRENA: [{ codMateria: "AGR1TB01", materia: "INTRODUCCION A LA AGRONOMIA", codNivel: "1", nivel: "PRIMERO" }],
   IAMBENA: [{ codMateria: "AMB1TB01", materia: "INTRODUCCION A LA INGENIERIA AMBIENTAL", codNivel: "1", nivel: "PRIMERO" }],
@@ -37,13 +46,30 @@ const MOCK_DOCENTES = {
   ],
 };
 
+const MOCK_ESTUDIANTES_TI = [
+  { codigo: "3038", cedula: "1206988014", nombres: "YIXON STALYN", apellidos: "CAMPUZANO AGUIRRE" },
+  { codigo: "3047", cedula: "2250281298", nombres: "ANDREA MELANY", apellidos: "MONTANO GREFA" },
+  { codigo: "3052", cedula: "2200581318", nombres: "JALITZA ANDREA", apellidos: "QUIROGA PERALTA" },
+  { codigo: "3053", cedula: "0804964443", nombres: "WELINTON ISAIAS", apellidos: "SACON CHILA" },
+  { codigo: "3060", cedula: "2250055379", nombres: "ERICK DIGNER", apellidos: "TAPUY SANDA" },
+  { codigo: "3062", cedula: "1722264296", nombres: "DANIELA MIRELY", apellidos: "VALLADOLID RIOFRIO" },
+  { codigo: "3070", cedula: "2250135270", nombres: "VIVIAN MARLITH", apellidos: "CHISAG MANZANO" },
+  { codigo: "3072", cedula: "2200377006", nombres: "JOJANCI STEFANI", apellidos: "GOMEZ CAICEDO" },
+  { codigo: "3077", cedula: "2200364582", nombres: "JESSICA BELEN", apellidos: "QUILLIGANA LINO" },
+  { codigo: "3078", cedula: "2250101348", nombres: "JOSUE ALEJANDRO", apellidos: "RODRIGUEZ NOBOA" },
+  { codigo: "3085", cedula: "2250091820", nombres: "RICHARD JOHNSON", apellidos: "RUIZ VICENTE" },
+  { codigo: "3088", cedula: "2200323513", nombres: "MARLYN DAYSI", apellidos: "ALVAREZ GUAMAN" },
+];
+
 const MOCK_ESTUDIANTES_POR_NIVEL = {
-  "3": [
-    { codigo: "3038", cedula: "1206988014", nombres: "YIXON STALYN", apellidos: "CAMPUZANO AGUIRRE" },
-    { codigo: "3047", cedula: "2250281298", nombres: "ANDREA MELANY", apellidos: "MONTANO GREFA" },
-    { codigo: "3052", cedula: "2200581318", nombres: "JALITZA ANDREA", apellidos: "QUIROGA PERALTA" },
-    { codigo: "3053", cedula: "0804964443", nombres: "WELINTON ISAIAS", apellidos: "SACON CHILA" },
-  ],
+  "1": MOCK_ESTUDIANTES_TI,
+  "2": MOCK_ESTUDIANTES_TI,
+  "3": MOCK_ESTUDIANTES_TI,
+  "4": MOCK_ESTUDIANTES_TI,
+  "5": MOCK_ESTUDIANTES_TI,
+  "6": MOCK_ESTUDIANTES_TI,
+  "7": MOCK_ESTUDIANTES_TI,
+  "8": MOCK_ESTUDIANTES_TI,
 };
 
 function derivarMateriasDe(codCarrera) {

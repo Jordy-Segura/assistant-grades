@@ -11,6 +11,14 @@ import { norm, mergeCodigos } from "../domain/mappers.mjs";
 
 const MATRICULA_TTL_MS = 5 * 60 * 1000;
 
+function hasRows(value) {
+  return Array.isArray(value) && value.length > 0;
+}
+
+function hasPeriodo(value) {
+  return Boolean(value && (value.codigo || value.descripcion));
+}
+
 export class OasisService {
   constructor({ gateway, mock, config }) {
     this.gateway = gateway; // OasisGateway (real)
@@ -20,9 +28,11 @@ export class OasisService {
   }
 
   // Ejecuta la operación real; ante cualquier fallo, usa el respaldo mock.
-  async #withFallback(realFn, mockFn) {
+  async #withFallback(realFn, mockFn, isUseful) {
     try {
-      return await realFn();
+      const result = await realFn();
+      if (isUseful && !isUseful(result)) throw new Error("Respuesta OASIS sin datos utiles.");
+      return result;
     } catch {
       return await mockFn();
     }
@@ -30,36 +40,38 @@ export class OasisService {
 
   // ---- Primitivas resilientes (real -> mock) ----
   getPeriodoActual() {
-    return this.#withFallback(() => this.gateway.getPeriodoActual(), () => this.mock.getPeriodoActual());
+    return this.#withFallback(() => this.gateway.getPeriodoActual(), () => this.mock.getPeriodoActual(), hasPeriodo);
   }
   getFacultades() {
-    return this.#withFallback(() => this.gateway.getFacultades(), () => this.mock.getFacultades());
+    return this.#withFallback(() => this.gateway.getFacultades(), () => this.mock.getFacultades(), hasRows);
   }
   getCarreras() {
-    return this.#withFallback(() => this.gateway.getCarreras(), () => this.mock.getCarreras());
+    return this.#withFallback(() => this.gateway.getCarreras(), () => this.mock.getCarreras(), hasRows);
   }
   getMalla(codCarrera) {
-    return this.#withFallback(() => this.gateway.getMalla(codCarrera), () => this.mock.getMalla(codCarrera));
+    return this.#withFallback(() => this.gateway.getMalla(codCarrera), () => this.mock.getMalla(codCarrera), hasRows);
   }
   getDictados(codCarrera, codMateria) {
-    return this.#withFallback(() => this.gateway.getDictados(codCarrera, codMateria), () => this.mock.getDictados(codCarrera, codMateria));
+    return this.#withFallback(() => this.gateway.getDictados(codCarrera, codMateria), () => this.mock.getDictados(codCarrera, codMateria), hasRows);
   }
   getMateriasDocente(codCarrera, cedula, codPeriodo) {
     return this.#withFallback(
       () => this.gateway.getMateriasDocente(codCarrera, cedula, codPeriodo),
-      () => this.mock.getMateriasDocente(codCarrera, cedula, codPeriodo)
+      () => this.mock.getMateriasDocente(codCarrera, cedula, codPeriodo),
+      hasRows
     );
   }
   getNotas(codCarrera, cedula) {
     return this.#withFallback(() => this.gateway.getNotas(codCarrera, cedula), () => this.mock.getNotas(codCarrera, cedula));
   }
   getDatosEstudiante(cedula) {
-    return this.#withFallback(() => this.gateway.getDatosEstudiante(cedula), () => this.mock.getDatosEstudiante(cedula));
+    return this.#withFallback(() => this.gateway.getDatosEstudiante(cedula), () => this.mock.getDatosEstudiante(cedula), Boolean);
   }
   getMateriasEstudiante(codCarrera, cedula, codPeriodo) {
     return this.#withFallback(
       () => this.gateway.getMateriasEstudiante(codCarrera, cedula, codPeriodo),
-      () => this.mock.getMateriasEstudiante(codCarrera, cedula, codPeriodo)
+      () => this.mock.getMateriasEstudiante(codCarrera, cedula, codPeriodo),
+      hasRows
     );
   }
 
@@ -91,7 +103,8 @@ export class OasisService {
   getAlumnosMateria(params) {
     return this.#withFallback(
       () => this.#nominaConCodigos(this.gateway, params),
-      () => this.#nominaConCodigos(this.mock, params)
+      () => this.#nominaConCodigos(this.mock, params),
+      hasRows
     );
   }
 
@@ -179,7 +192,11 @@ export class OasisService {
   }
 
   resolverNomina(body) {
-    return this.#withFallback(() => this.#resolverNominaWith(this.gateway, body), () => this.#resolverNominaWith(this.mock, body));
+    return this.#withFallback(
+      () => this.#resolverNominaWith(this.gateway, body),
+      () => this.#resolverNominaWith(this.mock, body),
+      (res) => res && hasRows(res.estudiantes)
+    );
   }
 
   async #docentesCarreraWith(gateway, body) {

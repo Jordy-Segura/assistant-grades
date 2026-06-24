@@ -157,7 +157,7 @@ export async function getStore({ email, role }) {
 }
 
 export async function putStore(payload) {
-  const { email, role, docentes, teacherAssignments, savedConfigs, studentsByConfig, gradesByConfig } = payload;
+  const { role, docentes, teacherAssignments, savedConfigs, studentsByConfig, gradesByConfig } = payload;
   if (role === "coordinador" && Array.isArray(docentes)) {
     for (const d of docentes) if (d.email) await upsertDocente(d);
   }

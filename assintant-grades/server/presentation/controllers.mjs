@@ -148,6 +148,14 @@ function devLogin(body) {
   };
 }
 
+function validatePasswordStrength(password) {
+  const p = String(password || "");
+  if (p.length < 8) return "La contrasena debe tener al menos 8 caracteres.";
+  if (/\s/.test(p)) return "La contrasena no debe tener espacios.";
+  if (!/[A-Za-z]/.test(p) || !/\d/.test(p)) return "La contrasena debe combinar letras y numeros.";
+  return "";
+}
+
 export function buildRoutes({ service, db, config }) {
   return {
     "GET /api/health": async () => ({
@@ -191,6 +199,29 @@ export function buildRoutes({ service, db, config }) {
       const u = await db.login(body.login, body.password);
       if (!u) throw new HttpError("Usuario o contrasena incorrectos.", 401);
       return u;
+    },
+
+    "POST /api/db-password": async (body) => {
+      if (!db.enabled) return { disabled: true };
+      if (!body.email || !body.currentPassword || !body.newPassword) {
+        throw new HttpError("Debe ingresar clave actual y nueva clave.", 400);
+      }
+      const passwordError = validatePasswordStrength(body.newPassword);
+      if (passwordError) throw new HttpError(passwordError, 400);
+      const ok = await db.updatePassword(body.email, body.currentPassword, body.newPassword);
+      if (!ok) throw new HttpError("La clave actual no es correcta.", 401);
+      return { ok: true };
+    },
+
+    "POST /api/session/claim": async (body) => {
+      if (!db.enabled) return { disabled: true, ok: true };
+      if (!body.email || !body.sessionId) throw new HttpError("Sesion invalida.", 400);
+      return db.claimSession(body.email, body.sessionId, body);
+    },
+
+    "POST /api/session/release": async (body) => {
+      if (!db.enabled) return { disabled: true, ok: true };
+      return db.releaseSession(body.email, body.sessionId);
     },
 
     "POST /api/export-cache": async (body) => {

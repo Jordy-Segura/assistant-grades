@@ -55,37 +55,42 @@ function readJsonBody(req) {
 
 // Crea el servidor HTTP a partir de la tabla de rutas { "METHOD /path": handler }.
 export function createHttpServer(routes, config) {
+  return http.createServer((req, res) => handleHttpRequest(req, res, routes, config));
+}
+
+export async function handleHttpRequest(req, res, routes, config) {
   const cors = corsHeaders(config.corsOrigin);
-  return http.createServer(async (req, res) => {
-    if (req.method === "OPTIONS") {
-      res.writeHead(204, cors);
-      res.end();
+  if (req.method === "OPTIONS") {
+    res.writeHead(204, cors);
+    res.end();
+    return;
+  }
+
+  const url = new URL(req.url, "http://localhost");
+  let handler = routes[req.method + " " + url.pathname];
+  let routeArg = null;
+  if (!handler && req.method === "GET" && url.pathname.startsWith("/api/export-cache/")) {
+    handler = routes["GET /api/export-cache/:id"];
+    routeArg = { id: decodeURIComponent(url.pathname.split("/").pop() || "") };
+  }
+
+  if (!handler) {
+    sendJson(res, 404, { error: "Recurso no encontrado: " + req.method + " " + url.pathname }, cors);
+    return;
+  }
+
+  const hasBody = req.method === "POST" || req.method === "PUT";
+  const arg = routeArg || (hasBody ? await readJsonBody(req) : Object.fromEntries(url.searchParams.entries()));
+  try {
+    const data = await handler(arg);
+    if (data && data.__raw) {
+      sendRaw(res, data.status || 200, data.__raw, cors);
       return;
     }
-    const url = new URL(req.url, "http://localhost");
-    let handler = routes[req.method + " " + url.pathname];
-    let routeArg = null;
-    if (!handler && req.method === "GET" && url.pathname.startsWith("/api/export-cache/")) {
-      handler = routes["GET /api/export-cache/:id"];
-      routeArg = { id: decodeURIComponent(url.pathname.split("/").pop() || "") };
-    }
-    if (!handler) {
-      sendJson(res, 404, { error: "Recurso no encontrado: " + req.method + " " + url.pathname }, cors);
-      return;
-    }
-    const hasBody = req.method === "POST" || req.method === "PUT";
-    const arg = routeArg || (hasBody ? await readJsonBody(req) : Object.fromEntries(url.searchParams.entries()));
-    try {
-      const data = await handler(arg);
-      if (data && data.__raw) {
-        sendRaw(res, data.status || 200, data.__raw, cors);
-        return;
-      }
-      sendJson(res, 200, data, cors);
-    } catch (err) {
-      const status = err.soapFault ? 400 : err.statusCode || 502;
-      console.error(`[BFF] Error ${status}: ${err.message}`);
-      sendJson(res, status, { error: err.message || "Error interno del servidor" }, cors);
-    }
-  });
+    sendJson(res, 200, data, cors);
+  } catch (err) {
+    const status = err.soapFault ? 400 : err.statusCode || 502;
+    console.error(`[BFF] Error ${status}: ${err.message}`);
+    sendJson(res, status, { error: err.message || "Error interno del servidor" }, cors);
+  }
 }

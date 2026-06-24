@@ -81,6 +81,22 @@ self.onmessage = function (e) {
       }
     });
 
+    const promediosCalificados = promedios.filter(p => p.count >= 2);
+    const outlierIndices = detectarOutliers(promediosCalificados.map(p => p.promedio));
+    outlierIndices.forEach(index => {
+      const p = promediosCalificados[index];
+      const s = students.find(st => st.id === p.studentId);
+      if (s && p.promedio < 7) {
+        anomalias.push({
+          tipo: "promedio_atipico",
+          severidad: "media",
+          mensaje: `${s.apellidos} ${s.nombres} tiene un promedio atípico de ${p.promedio.toFixed(2)} frente al grupo`,
+          estudianteId: p.studentId,
+          nombreEstudiante: `${s.apellidos} ${s.nombres}`
+        });
+      }
+    });
+
     // 3. DETECTAR POSIBLES INCONSISTENCIAS (notas > puntaje máximo)
     const inconsistencias = [];
     grades.forEach(g => {

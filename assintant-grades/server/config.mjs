@@ -37,7 +37,7 @@ function buildConfig() {
       // Si no hay usuario de servicio, las operaciones autenticadas caen a mock.
       hasCredentials: Boolean(OASIS_USER),
     },
-    databaseUrl: process.env.DATABASE_URL || "",
+    databaseUrl: process.env.DATABASE_URL || process.env.DATABASE_URL_UNPOOLED || "",
     warnings,
   };
 }
