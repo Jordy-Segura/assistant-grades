@@ -3655,11 +3655,24 @@ export function initLegacyRuntime() {
       var codCarrera = (res && res.codCarrera) || '';
       var codPeriodo = (STATE.oasisPeriodo && STATE.oasisPeriodo.codigo) || '';
       if (!docentes.length) { setMsg('OASIS no devolvió docentes para esta carrera.', true); return; }
-      var nuevosDoc = 0, nuevasCargas = 0;
-      // Clave única de carga para evitar duplicados (también dentro del mismo import).
-      var seen = {};
-      (STATE.teacherAssignments || []).forEach(function (a) {
-        seen[[a.docenteEmail, a.carrera, a.asignatura, a.pao, a.paralelo].join('|')] = true;
+      var nuevosDoc = 0, nuevasCargas = 0, actualizadas = 0;
+      // Clave normalizada (sin tildes/espacios extra/mayúsculas) para identificar
+      // la MISMA carga aunque OASIS o el catálogo varíen acentos o capitalización.
+      // Así re-importar ACTUALIZA en lugar de duplicar.
+      var normKey = function (parts) {
+        return parts.map(function (v) {
+          return String(v == null ? '' : v)
+            .normalize('NFD').replace(/[̀-ͯ]/g, '')
+            .replace(/\s+/g, ' ').trim().toUpperCase();
+        }).join('|');
+      };
+      // Índice por clave; de paso descarta duplicados que ya estuvieran guardados.
+      var byKey = {};
+      STATE.teacherAssignments = (STATE.teacherAssignments || []).filter(function (a) {
+        var k = normKey([a.docenteEmail, a.carrera, a.asignatura, a.pao, a.paralelo]);
+        if (byKey[k]) return false;
+        byKey[k] = a;
+        return true;
       });
       docentes.forEach(function (d) {
         var nombre = ((d.nombres || '') + ' ' + (d.apellidos || '')).trim() || d.cedula;
@@ -3672,10 +3685,21 @@ export function initLegacyRuntime() {
           nuevosDoc++;
         }
         (d.cargas || []).forEach(function (carga) {
-          var key = [email, career, carga.materia, carga.codNivel, carga.paralelo].join('|');
-          if (seen[key]) return;
-          seen[key] = true;
-          STATE.teacherAssignments.unshift({
+          var k = normKey([email, career, carga.materia, carga.codNivel, carga.paralelo]);
+          var prev = byKey[k];
+          if (prev) {
+            // Misma carga: actualiza códigos/nombre OASIS sin crear otra fila.
+            prev.docenteNombre = nombre;
+            prev.cedula = d.cedula;
+            prev.codCarrera = codCarrera;
+            prev.codMateria = carga.codMateria;
+            prev.codNivel = carga.codNivel;
+            prev.codPeriodo = codPeriodo;
+            prev.source = 'oasis';
+            actualizadas++;
+            return;
+          }
+          var nueva = {
             id: 'asg_' + Date.now() + Math.random().toString(36).slice(2, 6),
             docenteEmail: email,
             docenteNombre: nombre,
@@ -3692,14 +3716,16 @@ export function initLegacyRuntime() {
             racs: [],
             raau: [],
             source: 'oasis'
-          });
+          };
+          byKey[k] = nueva;
+          STATE.teacherAssignments.unshift(nueva);
           nuevasCargas++;
         });
       });
       save();
       closeModal();
       renderCoordinacion('asignaturas');
-      showToast(nuevosDoc + ' docentes nuevos (' + docentes.length + ' en total) y ' + nuevasCargas + ' cargas importadas de OASIS', 'success');
+      showToast(nuevosDoc + ' docentes nuevos · ' + nuevasCargas + ' cargas nuevas · ' + actualizadas + ' actualizadas', 'success');
     } catch (err) {
       setMsg((err && err.offline) ? 'OASIS/BFF no disponible.' : ((err && err.message) || 'Error al importar docentes.'), true);
     }
