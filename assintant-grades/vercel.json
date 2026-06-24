@@ -3,9 +3,12 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "functions": {
-    "api/[...path].mjs": {
+    "api/index.mjs": {
       "maxDuration": 30,
       "includeFiles": "neon-schema.sql"
     }
-  }
+  },
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "/api" }
+  ]
 }
