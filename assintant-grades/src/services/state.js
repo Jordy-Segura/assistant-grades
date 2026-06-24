@@ -120,7 +120,8 @@ export function pushToDb() {
 
 async function doPushToDb() {
   const u = _state.currentUser;
-  if (!u || !_dbReady) return;
+  if (!u) return;
+  if (!_dbReady) { _dbReady = true; }
 
   // Llamar persistActiveConfigData (definida en legacyRuntime) si existe
   if (typeof window.persistActiveConfigData === "function") {
@@ -164,23 +165,24 @@ async function doPushToDb() {
 
 export async function hydrateFromDb() {
   const u = _state.currentUser;
-  if (!u) return;
+  if (!u) { _dbReady = true; return; }
 
   let store;
   try {
     store = await oasis.getStore({ email: u.email, role: u.role });
   } catch {
+    _dbReady = true;
     return;
   }
-  if (!store) return;
+  if (!store) { _dbReady = true; return; }
   if (store.disabled) {
     _dbReady = true;
     return;
   }
 
-  // REEMPLAZAR estado local con datos de Supabase (fuente de verdad)
+  // REEMPLAZAR estado local con datos de Supabase (solo si hay datos)
   // Docentes: preservar contraseñas locales
-  if (Array.isArray(store.docentes)) {
+  if (Array.isArray(store.docentes) && store.docentes.length > 0) {
     const localPasswords = {};
     (_state.docentes || []).forEach((d) => {
       if (d.password) localPasswords[d.email] = d.password;
@@ -196,13 +198,17 @@ export async function hydrateFromDb() {
     }));
   }
 
-  if (Array.isArray(store.teacherAssignments))
+  if (Array.isArray(store.teacherAssignments) && store.teacherAssignments.length > 0)
     _state.teacherAssignments = store.teacherAssignments;
 
-  // Reemplazar configuraciones, estudiantes y notas (no merge)
-  _state.savedConfigs = Array.isArray(store.savedConfigs) ? store.savedConfigs : _state.savedConfigs;
-  _state.studentsByConfig = store.studentsByConfig || {};
-  _state.gradesByConfig = store.gradesByConfig || {};
+  if (Array.isArray(store.savedConfigs) && store.savedConfigs.length > 0)
+    _state.savedConfigs = store.savedConfigs;
+
+  if (store.studentsByConfig && Object.keys(store.studentsByConfig).length > 0)
+    _state.studentsByConfig = store.studentsByConfig;
+
+  if (store.gradesByConfig && Object.keys(store.gradesByConfig).length > 0)
+    _state.gradesByConfig = store.gradesByConfig;
 
   // Si no hay activeConfigId pero hay configuraciones, activar la primera
   if (!_state.activeConfigId && Array.isArray(_state.savedConfigs) && _state.savedConfigs.length > 0) {
