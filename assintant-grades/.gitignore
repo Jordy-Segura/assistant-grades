@@ -1,9 +1,13 @@
 node_modules/
+dist/
 .vercel/
+.claude/
+
 .env
-.env.*
+.env.local
+.env.*.local
 server/.env
+backend/.env
+
 backend/logs/
 *.log
-
-.vercel

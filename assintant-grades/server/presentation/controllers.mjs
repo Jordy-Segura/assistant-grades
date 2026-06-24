@@ -190,6 +190,8 @@ export function buildRoutes({ service, db, config }) {
     "GET /api/db/health": () => db.health(),
     "GET /api/store": (arg) => (db.enabled ? db.getStore({ email: arg.email, role: arg.role }) : { disabled: true }),
     "PUT /api/store": (body) => (db.enabled ? db.putStore(body) : { disabled: true }),
+    "GET /api/catalogo-vectores": () => (db.enabled ? db.getVectorCatalog() : { disabled: true, carreras: {}, procedures: {} }),
+    "PUT /api/catalogo-vectores": (body) => (db.enabled ? db.replaceVectorCatalog(body) : { disabled: true }),
 
     "POST /api/dev-login": async (body) => devLogin(body),
 

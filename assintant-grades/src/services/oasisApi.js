@@ -143,6 +143,16 @@ export function putStore(payload) {
   return request("/api/store", { method: "PUT", body: payload });
 }
 
+/** Catalogo RAC/RAAU/procedimientos persistido en Neon. */
+export function getVectorCatalog() {
+  return request("/api/catalogo-vectores");
+}
+
+/** Reemplaza el catalogo RAC/RAAU/procedimientos en Neon. */
+export function putVectorCatalog(payload) {
+  return request("/api/catalogo-vectores", { method: "PUT", body: payload });
+}
+
 /** Crea una pagina temporal de descarga para QR (Excel/PDF). */
 export async function createExportPage(payload) {
   const data = await request("/api/export-cache", { method: "POST", body: { payload } });

@@ -18,7 +18,7 @@ const COORDINADOR = {
   nombre: "PAUL PAGUAY",
   cedula: "",
   rol: "coordinador",
-  password: "paguay2026",
+  password: "Paguay2026",
 };
 
 const SESSION_TTL_MS = 3 * 60 * 1000;
@@ -57,6 +57,19 @@ function jsonClone(value, fallback) {
 
 function safeText(value) {
   return value == null ? "" : String(value);
+}
+
+function catalogSlug(value) {
+  return safeText(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .toLowerCase() || "item";
+}
+
+function catalogKey(value) {
+  return catalogSlug(value).toUpperCase();
 }
 
 function stableChildId(configId, type, rawId, index) {
@@ -522,6 +535,171 @@ export class Database {
           grade,
         ]
       );
+    }
+  }
+
+  async getVectorCatalog() {
+    await this.ensureSchema();
+    const rows = await this.#q(`
+      SELECT tipo,carrera,asignatura,componente,legacy_id,codigo,descripcion,rac_legacy_id,data,
+             CASE WHEN (data->>'order') ~ '^[0-9]+$' THEN (data->>'order')::int ELSE 0 END AS orden
+      FROM app_vectores_catalogo
+      WHERE tipo IN ('RAC','RAAU','PROCEDIMIENTO')
+      ORDER BY tipo, carrera, asignatura, componente, orden, codigo, legacy_id
+    `);
+
+    const carreras = {};
+    const procedures = { ACD: [], APEX: [], AAUT: [] };
+    const careerAliases = new Map();
+    const ensureCareer = (name) => {
+      const careerName = safeText(name || "TECNOLOGIAS DE LA INFORMACION").trim();
+      const key = catalogKey(careerName);
+      const existingName = careerAliases.get(key);
+      if (existingName) return carreras[existingName];
+      careerAliases.set(key, careerName);
+      carreras[careerName] = { maxPao: 0, racs: [], malla: {}, asignaturas: {} };
+      return carreras[careerName];
+    };
+
+    for (const row of rows.rows) {
+      const data = row.data || {};
+      if (row.tipo === "RAC") {
+        const career = ensureCareer(row.carrera);
+        const legacyId = safeText(data.id || row.legacy_id || row.codigo);
+        if (!legacyId) continue;
+        if (!career.racs.some((r) => r.id === legacyId || r.code === row.codigo)) {
+          career.racs.push({
+            id: legacyId,
+            code: safeText(data.code || row.codigo || legacyId),
+            description: safeText(data.description || row.descripcion),
+          });
+        }
+      } else if (row.tipo === "RAAU") {
+        const career = ensureCareer(row.carrera);
+        const subject = safeText(data.asignatura || row.asignatura).trim();
+        if (!subject) continue;
+        if (!career.asignaturas[subject]) career.asignaturas[subject] = { raau: [] };
+        career.asignaturas[subject].raau.push({
+          id: safeText(data.id || row.legacy_id || row.codigo),
+          code: safeText(data.code || row.codigo || "RAAU1"),
+          description: safeText(data.descripcion || data.description || row.descripcion),
+          racId: safeText(data.racId || row.rac_legacy_id),
+        });
+      } else if (row.tipo === "PROCEDIMIENTO") {
+        const component = safeText(data.component || row.componente).toUpperCase();
+        if (!procedures[component]) procedures[component] = [];
+        procedures[component].push({
+          id: safeText(data.id || row.legacy_id || row.codigo),
+          name: safeText(data.name || row.descripcion),
+        });
+      }
+    }
+
+    const mallaRows = await this.#q(`
+      SELECT DISTINCT carrera,pao,asignatura
+      FROM (
+        SELECT carrera,pao,asignatura FROM app_asignaciones WHERE activo = true
+        UNION
+        SELECT carrera,pao,asignatura FROM app_configuraciones_pao WHERE activo = true
+      ) s
+      WHERE NULLIF(trim(carrera),'') IS NOT NULL AND NULLIF(trim(asignatura),'') IS NOT NULL
+      ORDER BY carrera,pao,asignatura
+    `).catch(() => ({ rows: [] }));
+
+    for (const row of mallaRows.rows) {
+      const career = ensureCareer(row.carrera);
+      const pao = safeText(row.pao || "");
+      const subject = safeText(row.asignatura || "");
+      if (!pao || !subject) continue;
+      if (!career.malla[pao]) career.malla[pao] = [];
+      if (!career.malla[pao].includes(subject)) career.malla[pao].push(subject);
+      const paoNumber = Number(pao);
+      if (Number.isFinite(paoNumber)) career.maxPao = Math.max(career.maxPao || 0, paoNumber);
+      if (!career.asignaturas[subject]) career.asignaturas[subject] = { raau: [] };
+    }
+
+    return { carreras, procedures };
+  }
+
+  async replaceVectorCatalog(payload = {}) {
+    await this.ensureSchema();
+    const rows = [];
+    const carreras = payload.carreras && typeof payload.carreras === "object" ? payload.carreras : {};
+    const procedures = payload.procedures && typeof payload.procedures === "object" ? payload.procedures : {};
+
+    Object.entries(carreras).forEach(([careerName, career]) => {
+      (career.racs || []).forEach((rac, order) => {
+        const legacyId = safeText(rac.id || rac.code || `rac_${order + 1}`);
+        rows.push({
+          id: `catalog:${catalogSlug(careerName)}:rac:${catalogSlug(legacyId)}`,
+          tipo: "RAC",
+          carrera: careerName,
+          asignatura: "",
+          componente: "",
+          legacy_id: legacyId,
+          codigo: safeText(rac.code || legacyId),
+          descripcion: safeText(rac.description),
+          rac_legacy_id: "",
+          data: { ...jsonClone(rac, {}), order },
+        });
+      });
+
+      Object.entries(career.asignaturas || {}).forEach(([subject, subjectData]) => {
+        (subjectData.raau || []).forEach((raau, order) => {
+          const legacyId = safeText(raau.id || raau.code || `${subject}_${order + 1}`);
+          rows.push({
+            id: `catalog:${catalogSlug(careerName)}:raau:${catalogSlug(subject)}:${catalogSlug(legacyId)}`,
+            tipo: "RAAU",
+            carrera: careerName,
+            asignatura: subject,
+            componente: "",
+            legacy_id: legacyId,
+            codigo: safeText(raau.code || `RAAU${order + 1}`),
+            descripcion: safeText(raau.description),
+            rac_legacy_id: safeText(raau.racId),
+            data: { ...jsonClone(raau, {}), asignatura: subject, order },
+          });
+        });
+      });
+    });
+
+    Object.entries(procedures).forEach(([component, items]) => {
+      (items || []).forEach((item, order) => {
+        const legacyId = safeText(item.id || `${component}_${order + 1}`);
+        rows.push({
+          id: `catalog:procedure:${catalogSlug(component)}:${catalogSlug(legacyId)}`,
+          tipo: "PROCEDIMIENTO",
+          carrera: "",
+          asignatura: "",
+          componente: safeText(component).toUpperCase(),
+          legacy_id: legacyId,
+          codigo: legacyId,
+          descripcion: safeText(item.name),
+          rac_legacy_id: "",
+          data: { ...jsonClone(item, {}), component: safeText(component).toUpperCase(), order },
+        });
+      });
+    });
+
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("DELETE FROM app_vectores_catalogo");
+      for (const row of rows) {
+        await client.query(
+          `INSERT INTO app_vectores_catalogo
+            (id,tipo,carrera,asignatura,componente,legacy_id,codigo,descripcion,rac_legacy_id,data)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+          [row.id, row.tipo, row.carrera, row.asignatura, row.componente, row.legacy_id, row.codigo, row.descripcion, row.rac_legacy_id, row.data]
+        );
+      }
+      await client.query("COMMIT");
+      return { ok: true, total: rows.length };
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
     }
   }
 
