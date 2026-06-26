@@ -1,5 +1,5 @@
 import * as oasis from "./services/oasisApi.js";
-import { fmt, pct, formatCedula, escapeHtml, jsStringArg, fileSlug, normalizeEmail, normalizeDocId, clonePlain } from "./runtime/lib/format.js";
+import { fmt, pct, formatCedula, escapeHtml, fileSlug, normalizeEmail, normalizeDocId, clonePlain } from "./runtime/lib/format.js";
 import { downloadTextFile } from "./runtime/lib/dom.js";
 import { COMPONENT_WEIGHTS, COMPONENT_COLORS, COMPONENTS, COORDINADOR, ROLE_LABEL } from "./runtime/constants.js";
 import { buildGradesExcelXml } from "./runtime/lib/excel.js";
@@ -7,6 +7,7 @@ import { registerConsultas } from "./runtime/features/consultas.js";
 import { registerDashboard } from "./runtime/features/dashboard.js";
 import { registerAuth } from "./runtime/features/auth.js";
 import { registerConfig } from "./runtime/features/config.js";
+import { registerCoordinacion } from "./runtime/features/coordinacion.js";
 
 // Acceso al correo institucional (Microsoft 365 del dominio espoch.edu.ec).
 const WEBMAIL_URL = "https://login.microsoftonline.com/?whr=espoch.edu.ec";
@@ -691,9 +692,6 @@ export function initLegacyRuntime() {
     STATE.recentActivity.unshift({ text: text, type: type, time: timeStr, date: now.toLocaleDateString() });
     if (STATE.recentActivity.length > 20) STATE.recentActivity.pop();
   }
-
-  var chartCoordDocentes = null;
-  var chartCoordConfigs = null;
 
   function renderEstudiantes() {
     if (!STATE.activeConfigId) {
@@ -1932,162 +1930,6 @@ export function initLegacyRuntime() {
     document.getElementById('rep-printable').innerHTML = reportHtml;
   }
 
-  function renderCoordinacion(section) {
-    var target = document.getElementById('coord-content');
-    if (!target) return;
-    var titleEl = document.querySelector('#page-coordinacion .page-title');
-    var subEl = document.querySelector('#page-coordinacion .page-sub');
-    var labels = {
-      overview: ['Panel de Coordinación', 'Monitoreo de aplicación RAC/RAAU y mapeo curricular'],
-      asignaturas: ['Asignaturas', 'Asignación docente y seguimiento por asignatura'],
-      rac: ['RAC', 'Gestión de resultados de aprendizaje de carrera'],
-      raau: ['RAAU', 'Gestión de resultados de aprendizaje de asignatura'],
-      docentes: ['Docentes por Asignatura', 'Monitoreo y matriz docente/asignaturas']
-    };
-    var selected = labels[section || 'overview'] || labels.overview;
-    if (titleEl) titleEl.textContent = selected[0];
-    if (subEl) subEl.textContent = selected[1];
-    var totalConfigs = STATE.savedConfigs.length;
-    var totalStudents = Object.keys(STATE.studentsByConfig || {}).reduce(function (sum, key) { return sum + (STATE.studentsByConfig[key] || []).length; }, 0);
-    var completion = STATE.savedConfigs.map(function (cfg) {
-      var sid = cfg.id;
-      var students = (STATE.studentsByConfig[sid] || []);
-      var grades = (STATE.gradesByConfig[sid] || []);
-      var acts = (cfg.activities || []);
-      var expected = students.length * acts.length;
-      var entered = grades.filter(function (g) { return g.score != null; }).length;
-      return { cfg: cfg, pct: expected > 0 ? Math.round(entered / expected * 100) : 0 };
-    });
-    var avgCompletion = completion.length ? Math.round(completion.reduce(function (s, c) { return s + c.pct; }, 0) / completion.length) : 0;
-    var docentes = {};
-    completion.forEach(function (item) {
-      var doc = (item.cfg.courseConfig && item.cfg.courseConfig.docente) || 'Sin docente';
-      if (!docentes[doc]) docentes[doc] = { count: 0, total: 0 };
-      docentes[doc].count++;
-      docentes[doc].total += item.pct;
-    });
-    var docenteRows = Object.keys(docentes).map(function (doc) {
-      var d = docentes[doc];
-      return '<tr><td>' + doc + '</td><td>' + d.count + '</td><td>' + Math.round(d.total / d.count) + '%</td></tr>';
-    }).join('');
-    var cfgRows = completion.map(function (item) {
-      var cfg = item.cfg.courseConfig || {};
-      return '<tr><td>' + (cfg.asignatura || '—') + '</td><td>' + (cfg.docente || '—') + '</td><td>' + (cfg.pao || '—') + '</td><td>' + item.pct + '%</td><td><button class="btn btn-edit btn-sm" onclick="coordOpenConfig(\'' + item.cfg.id + '\')">Gestionar</button></td></tr>';
-    }).join('');
-    var careerOptions = Object.keys(DB_ESPOCH).map(function (c) { return '<option value="' + c + '">' + c + '</option>'; }).join('');
-    // El coordinador también es docente: puede asignarse asignaturas a sí mismo.
-    var assignablePeople = [COORDINADOR].concat(getDocentes());
-    var docenteOptions = assignablePeople.map(function (u) {
-      return '<option value="' + u.email + '">' + u.name + (u.role === 'coordinador' ? ' (coordinador)' : '') + '</option>';
-    }).join('');
-    section = section || 'overview';
-    var showOverview = section === 'overview';
-    var showAsignaturas = section === 'asignaturas';
-    var showDocentes = section === 'docentes';
-    var showRAC = section === 'rac';
-    var showRAAU = section === 'raau';
-    target.innerHTML =
-      '<div class="coord-layout">' +
-      '<div class="stat-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:0"><div class="stat-card"><div class="stat-label">Configuraciones activas</div><div class="stat-val" style="color:var(--gray-800)">' + totalConfigs + '</div><div class="stat-sub">Histórico guardado</div></div><div class="stat-card"><div class="stat-label">Estudiantes monitoreados</div><div class="stat-val" style="color:var(--green)">' + totalStudents + '</div><div class="stat-sub">Suma de todas las configuraciones</div></div><div class="stat-card"><div class="stat-label">Avance promedio</div><div class="stat-val" style="color:var(--amber)">' + avgCompletion + '%</div><div class="stat-sub">Carga global de notas</div></div></div>' +
-      ((showOverview || showDocentes) ? '<div class="coord-chart-grid"><div class="card"><div class="card-header"><div class="card-title">Aporte por asignatura a cada RAC</div></div><div class="card-body"><canvas id="coord-chart-docentes" height="200"></canvas></div></div><div class="card"><div class="card-header"><div class="card-title">Top asignaturas que más aportan RAC</div></div><div class="card-body"><canvas id="coord-chart-configs" height="200"></canvas></div></div></div>' : '') +
-      (showDocentes ? '<div class="card" style="margin-bottom:16px"><div class="card-header"><div class="card-title">Monitoreo docente</div></div><div class="card-body"><table class="data"><thead><tr><th>Docente</th><th>Asignaturas</th><th>Avance</th></tr></thead><tbody>' + (docenteRows || '<tr><td colspan="3">Sin datos</td></tr>') + '</tbody></table></div></div>' : '') +
-      (showAsignaturas ? '<div class="card"><div class="card-header"><div class="card-title">Docentes y sus asignaturas</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-success btn-sm" onclick="coordImportDocentes()">⬇ Importar de OASIS</button><button class="btn btn-primary btn-sm" onclick="coordAddDocente()">+ Docente</button></div></div><div class="card-body"><p style="font-size:.78rem;color:var(--gray-500);margin-bottom:6px">Importa docentes con sus cargas (materia · nivel · paralelo) desde OASIS y asígnales una contraseña. Cada docente solo verá y calificará sus propias asignaturas.</p><div id="coord-docentes-list"></div></div></div>' : '') +
-      (showAsignaturas ? '<div class="card"><div class="card-header"><div class="card-title">Asignar una asignatura manualmente</div></div><div class="card-body"><div class="form-grid"><div class="form-group"><label class="form-label">Docente</label><select class="form-select" id="coord-doc-email"><option value="">Seleccione docente</option>' + docenteOptions + '</select></div><div class="form-group"><label class="form-label">Carrera</label><select class="form-select" id="coord-career-assignment" onchange="coordLoadSubjectsAssignment()"><option value="">Seleccione carrera</option>' + careerOptions + '</select></div></div><div class="form-grid"><div class="form-group"><label class="form-label">PAO</label><select class="form-select" id="coord-pao-assignment"><option value="">Seleccione PAO</option></select></div><div class="form-group"><label class="form-label">Asignatura</label><select class="form-select" id="coord-subject-assignment"><option value="">Seleccione asignatura</option></select></div></div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-primary btn-sm" onclick="coordCreateAssignment()">Asignar asignatura</button><button class="btn btn-ghost btn-sm" onclick="coordAddAsignatura()">+ Crear asignatura en malla</button></div></div></div>' : '') +
-      (showAsignaturas ? '<div class="card"><div class="card-header"><div class="card-title">Configuraciones guardadas (todas)</div><button class="btn btn-primary btn-sm" onclick="coordCreateConfig()">Nueva configuración</button></div><div class="card-body" style="overflow-x:auto"><table class="data"><thead><tr><th>Asignatura</th><th>Docente</th><th>PAO</th><th>Progreso</th><th></th></tr></thead><tbody>' + (cfgRows || '<tr><td colspan="5" style="text-align:center;color:var(--gray-500);padding:16px">Sin configuraciones guardadas</td></tr>') + '</tbody></table></div></div>' : '') +
-      (showRAC ? '<div class="card"><div class="card-header"><div class="card-title">Gestión de RAC</div></div><div class="card-body"><div class="form-grid"><div class="form-group"><label class="form-label">Carrera</label><select class="form-select" id="coord-career-rac" onchange="coordRenderRACList()"><option value="">Seleccione carrera</option>' + careerOptions + '</select></div><div class="form-group" style="display:flex;align-items:flex-end"><button class="btn btn-edit btn-sm" onclick="coordManualRAC()">Agregar RAC manual</button></div></div><div id="coord-rac-list" style="margin-top:10px;font-size:.8rem;color:var(--gray-600)">Seleccione carrera para listar RAC.</div></div></div>' : '') +
-      (showRAAU ? '<div class="card"><div class="card-header"><div class="card-title">Gestión global RAAU por asignatura</div></div><div class="card-body"><div class="form-grid"><div class="form-group"><label class="form-label">Carrera</label><select class="form-select" id="coord-career" onchange="coordLoadSubjects()"><option value="">Seleccione carrera</option>' + careerOptions + '</select></div><div class="form-group"><label class="form-label">Asignatura</label><select class="form-select" id="coord-subject" onchange="coordRenderRAAUList()"><option value="">Seleccione asignatura</option></select></div></div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-edit btn-sm" onclick="coordEditMapping()">Editar mapeo RAC/RAAU</button><button class="btn btn-edit btn-sm" onclick="coordManualRAAU()">Agregar RAAU manual</button><button class="btn btn-ghost btn-sm" onclick="coordTriggerExcel()">Importar Excel RAC/RAAU</button><input type="file" id="coord-excel-input" accept=".xlsx,.xls,.csv" style="display:none" onchange="coordImportExcel(this.files)"></div><div id="coord-raau-list" style="margin-top:10px"></div></div></div>' : '') +
-      (showDocentes ? '<div class="card"><div class="card-header"><div class="card-title">Docentes por Asignatura (Matriz)</div></div><div class="card-body"><table class="data"><thead><tr><th>Docente</th><th>Asignaturas asignadas</th><th>Total</th></tr></thead><tbody>' + coordDocenteMatrixRows() + '</tbody></table></div></div>' : '') +
-      '</div>';
-    if (showOverview || showDocentes) renderCoordCharts(docentes, completion);
-    if (showRAC) coordRenderRACList();
-    if (showRAAU) coordRenderRAAUList();
-    if (showAsignaturas) coordRenderDocentesList();
-  }
-
-  function coordDocenteMatrixRows() {
-    var grouped = {};
-    (STATE.teacherAssignments || []).forEach(function (a) {
-      if (!grouped[a.docenteNombre]) grouped[a.docenteNombre] = [];
-      grouped[a.docenteNombre].push(a.asignatura + ' (PAO ' + a.pao + ')');
-    });
-    var names = Object.keys(grouped);
-    if (names.length === 0) return '<tr><td colspan="3">Sin asignaciones</td></tr>';
-    return names.map(function (name) {
-      return '<tr><td>' + name + '</td><td>' + grouped[name].join(', ') + '</td><td>' + grouped[name].length + '</td></tr>';
-    }).join('');
-  }
-
-  function renderCoordCharts(docentesMap, completion) {
-    if (typeof window.Chart === 'undefined') return;
-    var racCodes = ['RAC1', 'RAC2', 'RAC3', 'RAC4', 'RAC5', 'RAC6', 'RAC7', 'RAC8'];
-    var subjectRacCounter = {};
-    var subjectCounter = {};
-    completion.forEach(function (item) {
-      var cfg = item.cfg || {};
-      var subject = (cfg.courseConfig && cfg.courseConfig.asignatura) || 'Sin asignatura';
-      (cfg.raauEntries || []).forEach(function (r) {
-        var racObj = CAREER_RACS.find(function (rac) { return rac.id === r.racId || rac.code === r.racId; });
-        var racCode = racObj ? racObj.code : (String(r.racId || '').toUpperCase());
-        if (racCodes.indexOf(racCode) === -1) racCodes.push(racCode);
-        if (!subjectRacCounter[subject]) subjectRacCounter[subject] = {};
-        if (subjectRacCounter[subject][racCode] == null) subjectRacCounter[subject][racCode] = 0;
-        subjectRacCounter[subject][racCode]++;
-        if (!subjectCounter[subject]) subjectCounter[subject] = 0;
-        subjectCounter[subject]++;
-      });
-    });
-    var topSubjects = Object.keys(subjectCounter).sort(function (a, b) { return subjectCounter[b] - subjectCounter[a]; }).slice(0, 6);
-    var palette = ['#1d4ed8', '#2563eb', '#0284c7', '#0891b2', '#0d9488', '#16a34a', '#f59e0b', '#f97316'];
-    var racDatasets = racCodes.map(function (racCode, index) {
-      return {
-        label: racCode,
-        data: topSubjects.map(function (subject) {
-          return (subjectRacCounter[subject] && subjectRacCounter[subject][racCode]) || 0;
-        }),
-        backgroundColor: palette[index % palette.length],
-        borderRadius: 4
-      };
-    }).filter(function (dataset) {
-      return dataset.data.some(function (v) { return v > 0; });
-    });
-    var ctxDoc = document.getElementById('coord-chart-docentes');
-    if (ctxDoc) {
-      if (chartCoordDocentes) chartCoordDocentes.destroy();
-      chartCoordDocentes = new window.Chart(ctxDoc, {
-        type: 'bar',
-        data: { labels: topSubjects.length ? topSubjects : ['Sin datos'], datasets: topSubjects.length ? racDatasets : [{ label: 'Sin datos', data: [0], backgroundColor: '#cbd5e1' }] },
-        options: {
-          plugins: { legend: { position: 'bottom' } },
-          responsive: true,
-          scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } }
-        }
-      });
-    }
-    var overallTopSubjects = Object.keys(subjectCounter).sort(function (a, b) { return subjectCounter[b] - subjectCounter[a]; }).slice(0, 7);
-    var ctxCfg = document.getElementById('coord-chart-configs');
-    if (ctxCfg) {
-      if (chartCoordConfigs) chartCoordConfigs.destroy();
-      chartCoordConfigs = new window.Chart(ctxCfg, {
-        type: 'bar',
-        data: {
-          labels: overallTopSubjects.length ? overallTopSubjects : ['Sin datos'],
-          datasets: [{
-            label: 'Total de RAAU vinculados a RAC',
-            data: overallTopSubjects.length ? overallTopSubjects.map(function (s) { return subjectCounter[s]; }) : [0],
-            backgroundColor: '#22c55e',
-            borderRadius: 8
-          }]
-        },
-        options: {
-          indexAxis: 'y',
-          plugins: { legend: { display: false } },
-          responsive: true,
-          scales: { x: { beginAtZero: true } }
-        }
-      });
-    }
-  }
-
   function printDetailedReport() {
     var printable = document.getElementById('rep-printable');
     if (!printable || !printable.innerHTML.trim()) {
@@ -2103,696 +1945,6 @@ export function initLegacyRuntime() {
     w.document.close();
     setTimeout(function () { w.focus(); w.print(); }, 120);
   }
-
-  function coordLoadSubjects() {
-    var career = document.getElementById('coord-career').value;
-    var subject = document.getElementById('coord-subject');
-    if (!subject) return;
-    subject.innerHTML = '<option value="">Seleccione asignatura</option>';
-    if (!career || !DB_ESPOCH[career]) return;
-    Object.keys(DB_ESPOCH[career].malla || {}).forEach(function (paoKey) {
-      (DB_ESPOCH[career].malla[paoKey] || []).forEach(function (mat) {
-        subject.innerHTML += '<option value="' + mat + '">' + paoKey + ' · ' + mat + '</option>';
-      });
-    });
-  }
-
-  function coordLoadSubjectsAssignment() {
-    var career = document.getElementById('coord-career-assignment').value;
-    var paoSelect = document.getElementById('coord-pao-assignment');
-    var subject = document.getElementById('coord-subject-assignment');
-    if (!paoSelect || !subject) return;
-    paoSelect.innerHTML = '<option value="">Seleccione PAO</option>';
-    subject.innerHTML = '<option value="">Seleccione asignatura</option>';
-    if (!career || !DB_ESPOCH[career]) return;
-    Object.keys(DB_ESPOCH[career].malla || {}).forEach(function (paoKey) {
-      paoSelect.innerHTML += '<option value="' + paoKey + '">' + paoKey + '</option>';
-    });
-    paoSelect.onchange = function () {
-      subject.innerHTML = '<option value="">Seleccione asignatura</option>';
-      (DB_ESPOCH[career].malla[paoSelect.value] || []).forEach(function (mat) {
-        subject.innerHTML += '<option value="' + mat + '">' + mat + '</option>';
-      });
-    };
-  }
-
-  function coordCreateAssignment() {
-    var docEmail = document.getElementById('coord-doc-email').value;
-    var career = document.getElementById('coord-career-assignment').value;
-    var pao = document.getElementById('coord-pao-assignment').value;
-    var subject = document.getElementById('coord-subject-assignment').value;
-    if (!docEmail || !career || !pao || !subject) {
-      showToast('Complete docente, carrera, PAO y asignatura.', 'error');
-      return;
-    }
-    var docente = findUserByEmail(docEmail);
-    var mapped = (DB_ESPOCH[career].asignaturas[subject] && DB_ESPOCH[career].asignaturas[subject].raau) || [];
-    var racIds = [];
-    mapped.forEach(function (m) { if (racIds.indexOf(m.racId) === -1) racIds.push(m.racId); });
-    STATE.teacherAssignments.unshift({
-      id: 'asg_' + Date.now(),
-      docenteEmail: docEmail,
-      docenteNombre: docente ? docente.name : docEmail,
-      carrera: career,
-      pao: pao,
-      asignatura: subject,
-      racs: racIds.slice(),
-      raau: JSON.parse(JSON.stringify(mapped))
-    });
-    var snapshot = {
-      id: 'cfg_' + Date.now(),
-      savedAt: new Date().toLocaleString(),
-      ownerEmail: docEmail,
-      courseConfig: { periodoAcademico: '', facultad: 'SEDE ORELLANA', carrera: career, asignatura: subject, docente: docente ? docente.name : docEmail, pao: pao, aporte: 'FIN DE CICLO' },
-      selectedRACIds: racIds.slice(),
-      raauEntries: mapped.map(function (r, i) { return { id: 'raau_auto_' + i + '_' + Date.now(), code: r.code, description: r.description, racId: r.racId }; }),
-      activities: []
-    };
-    enrichConfigVectors(snapshot);
-    STATE.savedConfigs.unshift(snapshot);
-    save();
-    renderCoordinacion();
-    showToast('Docente asignado con configuración propia.', 'success');
-  }
-
-  function coordAddDocente() {
-    openModal('Nuevo Docente', '<div class="form-grid"><div class="form-group"><label class="form-label">Nombre</label><input class="form-input" id="coord-new-doc-name" placeholder="Ej: Prof. Luis Ramos"></div><div class="form-group"><label class="form-label">Correo</label><input class="form-input" id="coord-new-doc-email" placeholder="lramos@espoch.edu.ec"></div></div><div class="form-group"><label class="form-label">Contraseña (la asigna el coordinador)</label><input class="form-input" id="coord-new-doc-pass" placeholder="Clave para el docente"></div>',
-      [{ label: 'Cancelar', cls: 'btn-ghost', action: 'close' }, { label: 'Crear', cls: 'btn-success', action: function () {
-        var name = document.getElementById('coord-new-doc-name').value.trim();
-        var email = document.getElementById('coord-new-doc-email').value.trim().toLowerCase();
-        var pass = document.getElementById('coord-new-doc-pass').value.trim();
-        if (!name || !email || !pass) { showToast('Complete nombre, correo y contraseña.', 'error'); return; }
-        if (findUserByEmail(email)) { showToast('Ya existe un usuario con ese correo.', 'error'); return; }
-        STATE.docentes.push({ email: email, password: pass, role: 'docente', name: name, cedula: '' });
-        save();
-        closeModal();
-        renderCoordinacion('asignaturas');
-        showToast('Docente creado correctamente.', 'success');
-      }}]);
-    var newPassInput = document.getElementById('coord-new-doc-pass');
-    if (newPassInput) {
-      newPassInput.outerHTML =
-        '<input class="form-input" id="coord-new-doc-pass" type="password" autocomplete="new-password" placeholder="Clave para el docente" style="margin-bottom:8px">' +
-        '<label class="form-label">Confirmar contrasena</label><input class="form-input" id="coord-new-doc-pass-confirm" type="password" autocomplete="new-password">' +
-        rt.fns.passwordHelpHtml();
-    }
-    (window._modalActions || []).forEach(function (action) {
-      if (!action || action.label !== 'Crear' || action.cls !== 'btn-success') return;
-      action.action = function () {
-        var name = document.getElementById('coord-new-doc-name').value.trim();
-        var email = document.getElementById('coord-new-doc-email').value.trim().toLowerCase();
-        var pass = document.getElementById('coord-new-doc-pass').value.trim();
-        var confirm = document.getElementById('coord-new-doc-pass-confirm').value.trim();
-        if (!name || !email || !pass || !confirm) { showToast('Complete nombre, correo, clave y confirmacion.', 'error'); return; }
-        var validation = rt.fns.validatePasswordForm(pass, confirm);
-        if (validation) { showToast(validation, 'error'); return; }
-        if (findUserByEmail(email)) { showToast('Ya existe un usuario con ese correo.', 'error'); return; }
-        STATE.docentes.push({ email: email, password: pass, role: 'docente', name: name, cedula: '' });
-        save();
-        closeModal();
-        renderCoordinacion('asignaturas');
-        showToast('Docente creado correctamente.', 'success');
-      };
-    });
-  }
-
-  function coordAddAsignatura() {
-    var careerOptions = Object.keys(DB_ESPOCH).map(function (c) { return '<option value="' + c + '">' + c + '</option>'; }).join('');
-    openModal('Nueva Asignatura', '<div class="form-grid"><div class="form-group"><label class="form-label">Carrera</label><select class="form-select" id="coord-new-sub-career"><option value="">Seleccione carrera</option>' + careerOptions + '</select></div><div class="form-group"><label class="form-label">PAO</label><input class="form-input" id="coord-new-sub-pao" placeholder="Ej: 5 o NIVELACIÓN"></div></div><div class="form-group"><label class="form-label">Nombre Asignatura</label><input class="form-input" id="coord-new-sub-name" placeholder="Ej: ARQUITECTURA DE SOFTWARE"></div>',
-      [{ label: 'Cancelar', cls: 'btn-ghost', action: 'close' }, { label: 'Crear', cls: 'btn-success', action: function () {
-        var career = document.getElementById('coord-new-sub-career').value;
-        var pao = document.getElementById('coord-new-sub-pao').value.trim();
-        var name = document.getElementById('coord-new-sub-name').value.trim();
-        if (!career || !pao || !name) return;
-        if (!DB_ESPOCH[career].malla[pao]) DB_ESPOCH[career].malla[pao] = [];
-        if (DB_ESPOCH[career].malla[pao].indexOf(name) === -1) DB_ESPOCH[career].malla[pao].push(name);
-        if (!DB_ESPOCH[career].asignaturas[name]) DB_ESPOCH[career].asignaturas[name] = { raau: [] };
-        saveVectorCatalogSoon();
-        closeModal();
-        renderCoordinacion('asignaturas');
-        showToast('Asignatura creada en la malla.', 'success');
-      }}]);
-  }
-
-  function coordImportDocentes() {
-    var careerOptions = Object.keys(DB_ESPOCH).map(function (c) { return '<option value="' + c + '">' + c + '</option>'; }).join('');
-    openModal('Importar docentes desde OASIS',
-      '<p style="color:var(--gray-600);font-size:.8rem;margin-bottom:12px">Trae los docentes que dictan en la carrera con sus <strong>cargas horarias</strong> (materia · nivel · paralelo) desde OASIS y les crea un perfil de acceso.</p>' +
-      '<div class="form-group"><label class="form-label">Carrera</label><select class="form-select" id="coord-import-career"><option value="">Seleccione carrera</option>' + careerOptions + '</select></div>' +
-      '<div id="coord-import-msg" style="font-size:.78rem;color:var(--gray-500);min-height:18px"></div>',
-      [
-        { label: 'Cancelar', cls: 'btn-ghost', action: 'close' },
-        { label: 'Importar', cls: 'btn-success', action: doCoordImportDocentes }
-      ]);
-  }
-
-  async function doCoordImportDocentes() {
-    var sel = document.getElementById('coord-import-career');
-    var career = sel ? sel.value : '';
-    var msg = document.getElementById('coord-import-msg');
-    var setMsg = function (t, e) { if (msg) { msg.textContent = t; msg.style.color = e ? 'var(--red)' : 'var(--gray-500)'; } };
-    if (!career) { setMsg('Seleccione una carrera.', true); return; }
-    setMsg('Consultando docentes y cargas horarias en OASIS… (puede tardar unos segundos)', false);
-    try {
-      var res = await oasis.getDocentesCarrera({ carrera: career, facultad: 'SEDE ORELLANA' });
-      var docentes = (res && res.docentes) || [];
-      var codCarrera = (res && res.codCarrera) || '';
-      var codPeriodo = (STATE.oasisPeriodo && STATE.oasisPeriodo.codigo) || '';
-      if (!docentes.length) { setMsg('OASIS no devolvió docentes para esta carrera.', true); return; }
-      var nuevosDoc = 0, nuevasCargas = 0, actualizadas = 0, omitidos = 0;
-      // Clave normalizada (sin tildes/espacios extra/mayúsculas) para identificar
-      // la MISMA carga aunque OASIS o el catálogo varíen acentos o capitalización.
-      // Así re-importar ACTUALIZA en lugar de duplicar.
-      var normKey = function (parts) {
-        return parts.map(function (v) {
-          return String(v == null ? '' : v)
-            .normalize('NFD').replace(/[̀-ͯ]/g, '')
-            .replace(/\s+/g, ' ').trim().toUpperCase();
-        }).join('|');
-      };
-      // Índice por clave; de paso descarta duplicados que ya estuvieran guardados.
-      var byKey = {};
-      STATE.teacherAssignments = (STATE.teacherAssignments || []).filter(function (a) {
-        var k = normKey([a.docenteEmail, a.carrera, a.asignatura, a.pao, a.paralelo]);
-        if (byKey[k]) return false;
-        byKey[k] = a;
-        return true;
-      });
-      docentes.forEach(function (d) {
-        var nombre = ((d.nombres || '') + ' ' + (d.apellidos || '')).trim() || d.cedula;
-        var cedNum = String(d.cedula || '').replace(/[^0-9kK]/g, '');
-        var email = (d.email && /@/.test(d.email) && !/^null$/i.test(d.email)) ? d.email.toLowerCase() : (cedNum + '@espoch.edu.ec');
-        if (isDocenteExcluded(email, d.cedula)) {
-          omitidos++;
-          return;
-        }
-        var existente = findUserByEmail(email);
-        if (!existente) {
-          // Sin contraseña: el coordinador debe asignarla antes de que el docente ingrese.
-          STATE.docentes.push({ email: email, password: '', role: 'docente', name: nombre, cedula: d.cedula });
-          nuevosDoc++;
-        }
-        (d.cargas || []).forEach(function (carga) {
-          var k = normKey([email, career, carga.materia, carga.codNivel, carga.paralelo]);
-          var prev = byKey[k];
-          if (prev) {
-            // Misma carga: actualiza códigos/nombre OASIS sin crear otra fila.
-            prev.docenteNombre = nombre;
-            prev.cedula = d.cedula;
-            prev.codCarrera = codCarrera;
-            prev.codMateria = carga.codMateria;
-            prev.codNivel = carga.codNivel;
-            prev.codPeriodo = codPeriodo;
-            prev.source = 'oasis';
-            actualizadas++;
-            return;
-          }
-          var nueva = {
-            id: 'asg_' + Date.now() + Math.random().toString(36).slice(2, 6),
-            docenteEmail: email,
-            docenteNombre: nombre,
-            cedula: d.cedula,
-            carrera: career,
-            pao: carga.codNivel,
-            paralelo: carga.paralelo,
-            asignatura: carga.materia,
-            // Códigos OASIS para importar la nómina exacta sin re-resolver.
-            codCarrera: codCarrera,
-            codMateria: carga.codMateria,
-            codNivel: carga.codNivel,
-            codPeriodo: codPeriodo,
-            racs: [],
-            raau: [],
-            source: 'oasis'
-          };
-          byKey[k] = nueva;
-          STATE.teacherAssignments.unshift(nueva);
-          nuevasCargas++;
-        });
-      });
-      save();
-      closeModal();
-      renderCoordinacion('asignaturas');
-      if (omitidos) showToast(omitidos + ' docentes omitidos por lista de exclusion.', 'success');
-      showToast(nuevosDoc + ' docentes nuevos · ' + nuevasCargas + ' cargas nuevas · ' + actualizadas + ' actualizadas', 'success');
-    } catch (err) {
-      setMsg((err && err.offline) ? 'OASIS/BFF no disponible.' : ((err && err.message) || 'Error al importar docentes.'), true);
-    }
-  }
-
-  function coordRenderDocentesList() {
-    var target = document.getElementById('coord-docentes-list');
-    if (!target) return;
-    // El coordinador también es docente: aparece en la lista (marcado).
-    var docentes = [COORDINADOR].concat(getDocentes());
-    var omitted = getExcludedDocentes();
-    target.innerHTML = '<div style="font-size:.78rem;font-weight:700;color:var(--gray-800);margin:8px 0">Docentes registrados (' + docentes.length + ')</div>' +
-      (docentes.map(function (d) {
-        var asigs = (STATE.teacherAssignments || []).filter(function (a) { return a.docenteEmail === d.email; });
-        var asigHtml = asigs.length
-          ? asigs.map(function (a) { return '<span class="tag-pao" style="background:var(--blue);margin:2px 4px 2px 0;display:inline-block">' + a.asignatura + ' · N' + a.pao + ' P' + a.paralelo + '</span>'; }).join('')
-          : '<span style="font-size:.7rem;color:var(--gray-400)">Sin asignaturas</span>';
-        var esCoord = d.role === 'coordinador' || d.rol === 'coordinador';
-        var rolTag = esCoord ? '<span class="badge badge-blue">Coordinador</span> ' : '';
-        var claveBadge = d.password
-          ? '<span class="badge badge-green">Con clave</span>'
-          : '<span class="badge badge-amber">Sin clave</span>';
-        var omitButton = esCoord ? '' : '<button class="btn btn-danger btn-sm" onclick="coordOmitDocente(' + jsStringArg(d.email) + ')">Omitir</button>';
-        return '<div class="item-row" style="align-items:flex-start;flex-wrap:wrap">' +
-          '<div style="font-size:.8rem;flex:1;min-width:220px"><strong>' + d.name + '</strong> ' + rolTag + claveBadge +
-          '<div style="font-size:.7rem;color:var(--gray-500)">' + d.email + (d.cedula ? ' · ' + d.cedula : '') + '</div>' +
-          '<div style="margin-top:6px">' + asigHtml + '</div></div>' +
-          '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
-          omitButton +
-          '<button class="btn btn-ghost btn-sm" onclick="coordVerHorario(\'' + d.email + '\')">Ver horario</button>' +
-          '<button class="btn btn-edit btn-sm" onclick="coordSetDocentePassword(\'' + d.email + '\')">Asignar contraseña</button>' +
-          '</div></div>';
-      }).join(''));
-    if (omitted.length) {
-      target.innerHTML += '<div style="font-size:.78rem;font-weight:700;color:var(--gray-800);margin:14px 0 8px">Docentes omitidos (' + omitted.length + ')</div>' +
-        omitted.map(function (d) {
-          var nombre = d.name || d.nombre || d.nombres || d.email || d.cedula || 'Docente';
-          var detalle = [d.email, d.cedula, d.motivo ? ('Motivo: ' + d.motivo) : ''].filter(Boolean).join(' - ');
-          return '<div class="item-row" style="align-items:flex-start;flex-wrap:wrap;background:var(--red-bg)">' +
-            '<div style="font-size:.8rem;flex:1;min-width:220px"><strong>' + escapeHtml(nombre) + '</strong> <span class="badge badge-red">Omitido</span>' +
-            '<div style="font-size:.7rem;color:var(--gray-500)">' + escapeHtml(detalle) + '</div>' +
-            '<div style="font-size:.68rem;color:var(--gray-500);margin-top:4px">No se importara desde OASIS ni podra iniciar sesion mientras este omitido.</div></div>' +
-            '<button class="btn btn-edit btn-sm" onclick="coordRestoreDocente(' + jsStringArg(d.id) + ')">Restaurar</button>' +
-            '</div>';
-        }).join('');
-    }
-  }
-
-  // ---- Horario de clases del docente ----
-  function renderHorarioGrid(clases) {
-    if (Array.isArray(clases)) return renderHorarioGridV2(clases);
-    if (!clases || !clases.length) {
-      return '<div style="font-size:.82rem;color:var(--gray-500)">Sin horario registrado en OASIS para este período.</div>';
-    }
-    var diasDef = [['LUN', 'Lunes'], ['MAR', 'Martes'], ['MIE', 'Miércoles'], ['JUE', 'Jueves'], ['VIE', 'Viernes'], ['SAB', 'Sábado'], ['DOM', 'Domingo']];
-    var present = {};
-    clases.forEach(function (c) { present[c.codDia] = true; });
-    var cols = diasDef.filter(function (d) { return present[d[0]]; });
-    if (!cols.length) cols = diasDef.slice(0, 5);
-    var toMin = function (t) { var p = String(t || '').split(':'); return (parseInt(p[0], 10) || 0) * 60 + (parseInt(p[1], 10) || 0); };
-    var slots = [];
-    clases.forEach(function (c) { var k = c.inicio + ' - ' + c.fin; if (slots.indexOf(k) === -1) slots.push(k); });
-    slots.sort(function (a, b) { return toMin(a.split(' - ')[0]) - toMin(b.split(' - ')[0]); });
-    var byKey = {};
-    clases.forEach(function (c) { byKey[(c.inicio + ' - ' + c.fin) + '|' + c.codDia] = c.materia; });
-    var head = '<tr><th>Hora</th>' + cols.map(function (d) { return '<th>' + d[1] + '</th>'; }).join('') + '</tr>';
-    var body = slots.map(function (s) {
-      return '<tr><td style="font-family:var(--mono);white-space:nowrap;font-weight:600">' + s + '</td>' +
-        cols.map(function (d) {
-          var m = byKey[s + '|' + d[0]];
-          return '<td style="text-align:center">' + (m ? '<span class="comp-pill" style="background:var(--blue-bg);color:#1d4ed8;white-space:normal">' + m + '</span>' : '') + '</td>';
-        }).join('') + '</tr>';
-    }).join('');
-    return '<div style="overflow-x:auto"><table class="data" style="font-size:.74rem;min-width:520px"><thead>' + head + '</thead><tbody>' + body + '</tbody></table></div>';
-  }
-
-  function renderHorarioGridV2(clases) {
-    if (!clases || !clases.length) {
-      return '<div class="horario-empty">Sin horario registrado en OASIS para este periodo.</div>';
-    }
-    var diasDef = [['LUN', 'Lunes'], ['MAR', 'Martes'], ['MIE', 'Miercoles'], ['JUE', 'Jueves'], ['VIE', 'Viernes'], ['SAB', 'Sabado'], ['DOM', 'Domingo']];
-    var dayKey = function (c) { return String((c && (c.codDia || c.dia)) || '').trim().slice(0, 3).toUpperCase(); };
-    var fmtHour = function (t) { return String(t || '').trim().slice(0, 5); };
-    var toMin = function (t) { var p = String(t || '').split(':'); return (parseInt(p[0], 10) || 0) * 60 + (parseInt(p[1], 10) || 0); };
-    var present = {};
-    var subjects = {};
-    clases.forEach(function (c) {
-      var dk = dayKey(c);
-      if (dk) present[dk] = true;
-      if (c && c.materia) subjects[c.materia] = true;
-    });
-    var cols = diasDef.filter(function (d) { return present[d[0]]; });
-    if (!cols.length) cols = diasDef.slice(0, 5);
-    var slots = [];
-    clases.forEach(function (c) {
-      var k = fmtHour(c.inicio) + ' - ' + fmtHour(c.fin);
-      if (k.trim() !== '-' && slots.indexOf(k) === -1) slots.push(k);
-    });
-    slots.sort(function (a, b) { return toMin(a.split(' - ')[0]) - toMin(b.split(' - ')[0]); });
-    var byKey = {};
-    clases.forEach(function (c) {
-      var k = fmtHour(c.inicio) + ' - ' + fmtHour(c.fin) + '|' + dayKey(c);
-      if (!byKey[k]) byKey[k] = [];
-      byKey[k].push(c);
-    });
-    var firstHour = slots.length ? slots[0].split(' - ')[0] : '';
-    var lastHour = slots.length ? slots[slots.length - 1].split(' - ')[1] : '';
-    var summary =
-      '<div class="horario-summary">' +
-      '<div><strong>' + clases.length + '</strong><span>clases</span></div>' +
-      '<div><strong>' + cols.length + '</strong><span>dias</span></div>' +
-      '<div><strong>' + Object.keys(subjects).length + '</strong><span>materias</span></div>' +
-      '<div><strong>' + escapeHtml(firstHour + (lastHour ? ' - ' + lastHour : '')) + '</strong><span>rango</span></div>' +
-      '</div>';
-    var head = '<tr><th class="horario-hour-head">Hora</th>' + cols.map(function (d) { return '<th>' + d[1] + '</th>'; }).join('') + '</tr>';
-    var body = slots.map(function (s) {
-      return '<tr><td class="horario-hour">' + escapeHtml(s) + '</td>' +
-        cols.map(function (d) {
-          var items = byKey[s + '|' + d[0]] || [];
-          if (!items.length) return '<td class="horario-empty-cell"></td>';
-          return '<td>' + items.map(function (item) {
-            var materia = item.materia || 'Clase';
-            var detalle = [item.aula || item.paralelo || '', item.docente || ''].filter(Boolean).join(' - ');
-            return '<div class="horario-class-chip"><div>' + escapeHtml(materia) + '</div>' +
-              (detalle ? '<small>' + escapeHtml(detalle) + '</small>' : '') + '</div>';
-          }).join('') + '</td>';
-        }).join('') + '</tr>';
-    }).join('');
-    return '<div class="horario-shell">' + summary +
-      '<div class="horario-table-wrap"><table class="horario-table"><thead>' + head + '</thead><tbody>' + body + '</tbody></table></div>' +
-      '<div class="horario-note">Horario consultado desde OASIS. Las celdas vacias indican que no hay clase registrada en ese bloque.</div>' +
-      '</div>';
-  }
-
-  function showHorarioModal(nombre, clases) {
-    openModal('Horario de clases — ' + nombre, renderHorarioGrid(clases), [{ label: 'Cerrar', cls: 'btn-ghost', action: 'close' }]);
-    var m = document.querySelector('#modal-overlay .modal');
-    if (m) m.style.maxWidth = '780px';
-  }
-
-  async function verHorario(nombre, cedula, asgList) {
-    if (!cedula) { showToast('Este docente no tiene cédula registrada para consultar el horario.', 'error'); return; }
-    var a0 = (asgList && asgList[0]) || {};
-    if (!a0.codCarrera && !a0.carrera) { showToast('Sin asignaturas para determinar la carrera del horario.', 'error'); return; }
-    showToast('Consultando horario en OASIS…', 'success');
-    try {
-      var res = await oasis.getHorarioDocente({
-        codCarrera: a0.codCarrera || '', carrera: a0.carrera || '', facultad: 'SEDE ORELLANA',
-        cedula: cedula, codPeriodo: (STATE.oasisPeriodo && STATE.oasisPeriodo.codigo) || a0.codPeriodo || ''
-      });
-      showHorarioModal(nombre, res.clases);
-    } catch (err) {
-      showToast((err && err.offline) ? 'OASIS/BFF no disponible.' : ((err && err.message) || 'No se pudo obtener el horario.'), 'error');
-    }
-  }
-
-  function coordVerHorario(email) {
-    var d = findUserByEmail(email);
-    if (!d) return;
-    var asg = (STATE.teacherAssignments || []).filter(function (a) { return a.docenteEmail === email; });
-    verHorario(d.name, d.cedula || (asg[0] && asg[0].cedula) || '', asg);
-  }
-
-  function coordOmitDocente(email) {
-    var normalized = normalizeEmail(email);
-    if (!normalized || normalized === normalizeEmail(COORDINADOR.email)) {
-      showToast('No se puede omitir al coordinador.', 'error');
-      return;
-    }
-    var d = (STATE.docentes || []).find(function (item) { return normalizeEmail(item.email) === normalized; });
-    var asg = (STATE.teacherAssignments || []).filter(function (a) { return normalizeEmail(a.docenteEmail) === normalized; });
-    if (!d && !asg.length) { showToast('No se encontro el docente.', 'error'); return; }
-    var cedula = (d && d.cedula) || (asg[0] && asg[0].cedula) || '';
-    var nombre = (d && (d.name || d.nombre)) || (asg[0] && asg[0].docenteNombre) || normalized;
-    openModal('Omitir docente',
-      '<p style="font-size:.82rem;color:var(--gray-600);margin-bottom:10px">El docente <strong>' + escapeHtml(nombre) + '</strong> se quitara de las cargas activas y se ignorara en futuras importaciones desde OASIS.</p>' +
-      '<div class="form-group"><label class="form-label">Motivo (opcional)</label><input class="form-input" id="coord-omit-reason" placeholder="Ej. ya no labora en la institucion"></div>',
-      [
-        { label: 'Cancelar', cls: 'btn-ghost', action: 'close' },
-        { label: 'Omitir', cls: 'btn-danger', action: function () {
-          var reasonEl = document.getElementById('coord-omit-reason');
-          var motivo = reasonEl ? reasonEl.value.trim() : '';
-          var ex = { id: exclusionIdFor(normalized, cedula), email: normalized, cedula: normalizeDocId(cedula), name: nombre, nombre: nombre, motivo: motivo };
-          var found = false;
-          STATE.excludedDocentes = getExcludedDocentes().map(function (item) {
-            if (docenteMatchesExclusion(normalized, cedula, item)) {
-              found = true;
-              return Object.assign({}, item, ex);
-            }
-            return item;
-          });
-          if (!found) STATE.excludedDocentes.push(ex);
-          STATE.docentes = (STATE.docentes || []).filter(function (item) { return !docenteMatchesExclusion(item.email, item.cedula, ex); });
-          STATE.teacherAssignments = (STATE.teacherAssignments || []).filter(function (item) { return !docenteMatchesExclusion(item.docenteEmail, item.cedula, ex); });
-          save();
-          closeModal();
-          renderCoordinacion('asignaturas');
-          showToast('Docente omitido. No se volvera a importar desde OASIS.', 'success');
-        } }
-      ]);
-  }
-
-  function coordRestoreDocente(id) {
-    var targetId = String(id || '');
-    var before = getExcludedDocentes().length;
-    STATE.excludedDocentes = getExcludedDocentes().filter(function (item) { return String(item.id || '') !== targetId; });
-    if (STATE.excludedDocentes.length === before) { showToast('No se encontro el registro omitido.', 'error'); return; }
-    save();
-    renderCoordinacion('asignaturas');
-    showToast('Docente restaurado. Use Importar de OASIS para traer sus cargas nuevamente.', 'success');
-  }
-
-  function coordSetDocentePassword(email) {
-    var d = findUserByEmail(email);
-    if (!d) return;
-    openModal('Asignar contraseña — ' + d.name,
-      '<p style="color:var(--gray-600);font-size:.8rem;margin-bottom:10px">El docente ingresará con <strong>' + d.email + '</strong> y esta contraseña.</p>' +
-      '<div class="form-group"><label class="form-label">Nueva contraseña</label><input class="form-input" id="coord-set-pass" type="text" placeholder="Contraseña para el docente"></div>',
-      [{ label: 'Cancelar', cls: 'btn-ghost', action: 'close' }, { label: 'Guardar', cls: 'btn-success', action: function () {
-        var pass = document.getElementById('coord-set-pass').value.trim();
-        if (!pass) { showToast('Ingrese una contraseña.', 'error'); return; }
-        d.password = pass;
-        save();
-        closeModal();
-        renderCoordinacion('asignaturas');
-        showToast('Contraseña asignada a ' + d.name, 'success');
-      }}]);
-    var setPassInput = document.getElementById('coord-set-pass');
-    if (setPassInput) {
-      setPassInput.outerHTML =
-        '<input class="form-input" id="coord-set-pass" type="password" autocomplete="new-password" placeholder="Contrasena para el docente" style="margin-bottom:8px">' +
-        '<label class="form-label">Confirmar contrasena</label><input class="form-input" id="coord-set-pass-confirm" type="password" autocomplete="new-password">' +
-        rt.fns.passwordHelpHtml();
-    }
-    (window._modalActions || []).forEach(function (action) {
-      if (!action || action.label !== 'Guardar' || action.cls !== 'btn-success') return;
-      action.action = function () {
-        var pass = document.getElementById('coord-set-pass').value.trim();
-        var confirm = document.getElementById('coord-set-pass-confirm').value.trim();
-        if (!pass || !confirm) { showToast('Ingrese y confirme la contrasena.', 'error'); return; }
-        var validation = rt.fns.validatePasswordForm(pass, confirm);
-        if (validation) { showToast(validation, 'error'); return; }
-        d.password = pass;
-        save();
-        closeModal();
-        renderCoordinacion('asignaturas');
-        showToast('Contrasena asignada a ' + d.name, 'success');
-      };
-    });
-  }
-
-  function coordManualRAC() {
-    var careerEl = document.getElementById('coord-career-assignment') || document.getElementById('coord-career-rac');
-    var career = careerEl ? careerEl.value : '';
-    if (!career) { showToast('Seleccione carrera.', 'error'); return; }
-    openModal('Agregar RAC manual', '<div class="form-grid"><div class="form-group"><label class="form-label">Código</label><input class="form-input" id="coord-rac-code" placeholder="RAC6"></div><div class="form-group"><label class="form-label">Descripción</label><input class="form-input" id="coord-rac-desc" placeholder="Descripción del RAC"></div></div>',
-      [{ label: 'Cancelar', cls: 'btn-ghost', action: 'close' }, { label: 'Agregar', cls: 'btn-success', action: function () {
-        var code = document.getElementById('coord-rac-code').value.trim();
-        var desc = document.getElementById('coord-rac-desc').value.trim();
-        if (!code || !desc) return;
-        DB_ESPOCH[career].racs.push({ id: 'rac_manual_' + Date.now(), code: code, description: desc });
-        saveVectorCatalogSoon();
-        coordRenderRACList();
-        closeModal(); showToast('RAC agregado.', 'success');
-      }}]);
-  }
-
-  function coordRenderRACList() {
-    var careerEl = document.getElementById('coord-career-rac');
-    var target = document.getElementById('coord-rac-list');
-    if (!careerEl || !target) return;
-    var career = careerEl.value;
-    if (!career || !DB_ESPOCH[career]) {
-      target.innerHTML = 'Seleccione carrera para listar RAC.';
-      return;
-    }
-    var racs = DB_ESPOCH[career].racs || [];
-    if (racs.length === 0) {
-      target.innerHTML = 'No existen RAC para esta carrera.';
-      return;
-    }
-    target.innerHTML = racs.map(function (r) {
-      return '<div class="item-row"><div style="min-width:70px;font-weight:700;color:var(--gray-800)">' + r.code + '</div><div style="font-size:.8rem;color:var(--gray-600);flex:1">' + r.description + '</div><button class="btn btn-sm btn-ghost" onclick="coordEditRAC(\'' + career + '\',\'' + r.id + '\')">Editar</button><button class="btn btn-sm btn-danger" onclick="coordDeleteRAC(\'' + career + '\',\'' + r.id + '\')">Eliminar</button></div>';
-    }).join('');
-  }
-
-  function coordEditRAC(career, racId) {
-    var rac = (DB_ESPOCH[career].racs || []).find(function (r) { return r.id === racId; });
-    if (!rac) return;
-    openModal('Editar RAC', '<div class="form-grid"><div class="form-group"><label class="form-label">Código</label><input class="form-input" id="coord-edit-rac-code" value="' + rac.code + '"></div><div class="form-group"><label class="form-label">Descripción</label><input class="form-input" id="coord-edit-rac-desc" value="' + rac.description + '"></div></div>',
-      [{ label: 'Cancelar', cls: 'btn-ghost', action: 'close' }, { label: 'Guardar', cls: 'btn-success', action: function () {
-        rac.code = document.getElementById('coord-edit-rac-code').value.trim();
-        rac.description = document.getElementById('coord-edit-rac-desc').value.trim();
-        saveVectorCatalogSoon();
-        coordRenderRACList(); closeModal();
-      }}]);
-  }
-
-  function coordDeleteRAC(career, racId) {
-    DB_ESPOCH[career].racs = (DB_ESPOCH[career].racs || []).filter(function (r) { return r.id !== racId; });
-    Object.keys(DB_ESPOCH[career].asignaturas || {}).forEach(function (subject) {
-      var arr = DB_ESPOCH[career].asignaturas[subject].raau || [];
-      DB_ESPOCH[career].asignaturas[subject].raau = arr.filter(function (r) { return r.racId !== racId; });
-    });
-    saveVectorCatalogSoon();
-    coordRenderRACList();
-  }
-
-  function coordManualRAAU() {
-    var careerEl = document.getElementById('coord-career-assignment') || document.getElementById('coord-career');
-    var subjectEl = document.getElementById('coord-subject-assignment') || document.getElementById('coord-subject');
-    var career = careerEl ? careerEl.value : '';
-    var subject = subjectEl ? subjectEl.value : '';
-    if (!career || !subject) { showToast('Seleccione carrera y asignatura.', 'error'); return; }
-    var racOptions = (DB_ESPOCH[career].racs || []).map(function (r) { return '<option value="' + r.id + '">' + r.code + '</option>'; }).join('');
-    openModal('Agregar RAAU manual', '<div class="form-grid"><div class="form-group"><label class="form-label">Código</label><input class="form-input" id="coord-raau-code" placeholder="RAAU1"></div><div class="form-group"><label class="form-label">RAC</label><select class="form-select" id="coord-raau-rac">' + racOptions + '</select></div></div><div class="form-group"><label class="form-label">Descripción</label><textarea class="form-input" id="coord-raau-desc"></textarea></div>',
-      [{ label: 'Cancelar', cls: 'btn-ghost', action: 'close' }, { label: 'Agregar', cls: 'btn-success', action: function () {
-        var code = document.getElementById('coord-raau-code').value.trim();
-        var desc = document.getElementById('coord-raau-desc').value.trim();
-        var racId = document.getElementById('coord-raau-rac').value;
-        if (!code || !desc || !racId) return;
-        if (!DB_ESPOCH[career].asignaturas[subject]) DB_ESPOCH[career].asignaturas[subject] = { raau: [] };
-        DB_ESPOCH[career].asignaturas[subject].raau.push({ code: code, description: desc, racId: racId });
-        saveVectorCatalogSoon();
-        coordRenderRAAUList();
-        closeModal(); showToast('RAAU agregado.', 'success');
-      }}]);
-  }
-
-  function coordRenderRAAUList() {
-    var careerEl = document.getElementById('coord-career');
-    var subjectEl = document.getElementById('coord-subject');
-    var target = document.getElementById('coord-raau-list');
-    if (!careerEl || !subjectEl || !target) return;
-    var career = careerEl.value;
-    var subject = subjectEl.value;
-    if (!career || !subject || !DB_ESPOCH[career] || !DB_ESPOCH[career].asignaturas[subject]) {
-      target.innerHTML = '<div style="font-size:.8rem;color:var(--gray-500)">Seleccione carrera y asignatura.</div>';
-      return;
-    }
-    var raauArr = DB_ESPOCH[career].asignaturas[subject].raau || [];
-    if (raauArr.length === 0) {
-      target.innerHTML = '<div style="font-size:.8rem;color:var(--gray-500)">No hay RAAU cargados.</div>';
-      return;
-    }
-    target.innerHTML = raauArr.map(function (r, idx) {
-      var rac = (DB_ESPOCH[career].racs || []).find(function (x) { return x.id === r.racId; });
-      return '<div class="item-row"><div style="min-width:70px;font-weight:700;color:var(--gray-800)">' + r.code + '</div><div style="flex:1"><div style="font-size:.8rem;color:var(--gray-700)">' + r.description + '</div><div style="font-size:.68rem;color:var(--gray-400)">' + (rac ? rac.code : r.racId) + '</div></div><button class="btn btn-sm btn-ghost" onclick="coordEditRAAUItem(\'' + career + '\',\'' + subject + '\',' + idx + ')">Editar</button><button class="btn btn-sm btn-danger" onclick="coordDeleteRAAUItem(\'' + career + '\',\'' + subject + '\',' + idx + ')">Eliminar</button></div>';
-    }).join('');
-  }
-
-  function coordEditRAAUItem(career, subject, index) {
-    var item = (DB_ESPOCH[career].asignaturas[subject].raau || [])[index];
-    if (!item) return;
-    var racOptions = (DB_ESPOCH[career].racs || []).map(function (r) { return '<option value="' + r.id + '"' + (r.id === item.racId ? ' selected' : '') + '>' + r.code + '</option>'; }).join('');
-    openModal('Editar RAAU', '<div class="form-grid"><div class="form-group"><label class="form-label">Código</label><input class="form-input" id="coord-edit-raau-code" value="' + item.code + '"></div><div class="form-group"><label class="form-label">RAC</label><select class="form-select" id="coord-edit-raau-rac">' + racOptions + '</select></div></div><div class="form-group"><label class="form-label">Descripción</label><textarea class="form-input" id="coord-edit-raau-desc">' + item.description + '</textarea></div>',
-      [{ label: 'Cancelar', cls: 'btn-ghost', action: 'close' }, { label: 'Guardar', cls: 'btn-success', action: function () {
-        item.code = document.getElementById('coord-edit-raau-code').value.trim();
-        item.description = document.getElementById('coord-edit-raau-desc').value.trim();
-        item.racId = document.getElementById('coord-edit-raau-rac').value;
-        saveVectorCatalogSoon();
-        coordRenderRAAUList();
-        closeModal();
-      }}]);
-  }
-
-  function coordDeleteRAAUItem(career, subject, index) {
-    DB_ESPOCH[career].asignaturas[subject].raau.splice(index, 1);
-    saveVectorCatalogSoon();
-    coordRenderRAAUList();
-  }
-
-  function coordTriggerExcel() {
-    var input = document.getElementById('coord-excel-input');
-    if (input) input.click();
-  }
-
-  async function coordImportExcel(files) {
-    var file = files && files[0];
-    var careerEl = document.getElementById('coord-career-assignment') || document.getElementById('coord-career');
-    var subjectEl = document.getElementById('coord-subject-assignment') || document.getElementById('coord-subject');
-    var career = careerEl ? careerEl.value : '';
-    var subject = subjectEl ? subjectEl.value : '';
-    if (!file || !career || !subject) { showToast('Seleccione carrera/asignatura y archivo.', 'error'); return; }
-    try {
-      var XLSX = await import('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/+esm');
-      var data = await file.arrayBuffer();
-      var workbook = XLSX.read(data, { type: 'array' });
-      var firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-      var rows = XLSX.utils.sheet_to_json(firstSheet, { defval: '' });
-      var racByCode = {};
-      (DB_ESPOCH[career].racs || []).forEach(function (r) { racByCode[String(r.code).trim().toUpperCase()] = r; });
-      var importedRaaus = [];
-      rows.forEach(function (row) {
-        var racCode = String(row.RAC_CODE || row.RAC || '').trim().toUpperCase();
-        var racDesc = String(row.RAC_DESC || row.RAC_DESCRIPCION || '').trim();
-        var raauCode = String(row.RAAU_CODE || row.RAAU || '').trim();
-        var raauDesc = String(row.RAAU_DESC || row.RAAU_DESCRIPCION || '').trim();
-        if (!racCode || !raauCode || !raauDesc) return;
-        if (!racByCode[racCode]) {
-          var newRac = { id: 'rac_excel_' + Date.now() + '_' + racCode, code: racCode, description: racDesc || ('RAC ' + racCode) };
-          DB_ESPOCH[career].racs.push(newRac);
-          racByCode[racCode] = newRac;
-        }
-        importedRaaus.push({ code: raauCode, description: raauDesc, racId: racByCode[racCode].id });
-      });
-      if (!DB_ESPOCH[career].asignaturas[subject]) DB_ESPOCH[career].asignaturas[subject] = { raau: [] };
-      DB_ESPOCH[career].asignaturas[subject].raau = importedRaaus;
-      saveVectorCatalogSoon();
-      save();
-      coordRenderRAAUList();
-      showToast('Importación Excel completada: ' + importedRaaus.length + ' RAAU.', 'success');
-    } catch {
-      showToast('No se pudo procesar el Excel.', 'error');
-    }
-  }
-
-  function coordEditMapping() {
-    var career = document.getElementById('coord-career').value;
-    var subject = document.getElementById('coord-subject').value;
-    if (!career || !subject) { showToast('Seleccione carrera y asignatura.', 'error'); return; }
-    var racs = DB_ESPOCH[career].racs || [];
-    var existing = (DB_ESPOCH[career].asignaturas[subject] && DB_ESPOCH[career].asignaturas[subject].raau) || [];
-    var options = racs.map(function (r) { return '<option value="' + r.id + '">' + r.code + '</option>'; }).join('');
-    var rows = existing.map(function (r) {
-      return '<div class="item-row"><input class="form-input" value="' + (r.code || 'RAAU') + '" data-k="code"><input class="form-input" value="' + (r.description || '') + '" data-k="desc"><select class="form-select" data-k="rac">' + options.replace('value="' + r.racId + '"', 'value="' + r.racId + '" selected') + '</select></div>';
-    }).join('');
-    openModal('Editar mapeo de ' + subject, '<div id="coord-map-rows">' + (rows || '<div class="item-row"><input class="form-input" value="RAAU1" data-k="code"><input class="form-input" placeholder="Descripción" data-k="desc"><select class="form-select" data-k="rac">' + options + '</select></div>') + '</div><button class="btn btn-ghost btn-sm" onclick="coordAddMapRow()">+ Fila</button>',
-      [{ label: 'Cancelar', cls: 'btn-ghost', action: 'close' }, { label: 'Guardar', cls: 'btn-success', action: function () { coordSaveMapping(career, subject); } }]);
-  }
-
-  function coordAddMapRow() {
-    var holder = document.getElementById('coord-map-rows');
-    if (!holder) return;
-    var career = document.getElementById('coord-career').value;
-    var options = ((DB_ESPOCH[career] && DB_ESPOCH[career].racs) || []).map(function (r) { return '<option value="' + r.id + '">' + r.code + '</option>'; }).join('');
-    holder.innerHTML += '<div class="item-row"><input class="form-input" value="RAAU' + (holder.children.length + 1) + '" data-k="code"><input class="form-input" placeholder="Descripción" data-k="desc"><select class="form-select" data-k="rac">' + options + '</select></div>';
-  }
-
-  function coordSaveMapping(career, subject) {
-    var rows = Array.prototype.slice.call(document.querySelectorAll('#coord-map-rows .item-row'));
-    var mapped = rows.map(function (row) {
-      return {
-        code: row.querySelector('[data-k="code"]').value.trim(),
-        description: row.querySelector('[data-k="desc"]').value.trim(),
-        racId: row.querySelector('[data-k="rac"]').value
-      };
-    }).filter(function (x) { return x.code && x.description && x.racId; });
-    if (!DB_ESPOCH[career].asignaturas[subject]) DB_ESPOCH[career].asignaturas[subject] = { raau: [] };
-    DB_ESPOCH[career].asignaturas[subject].raau = mapped;
-    saveVectorCatalogSoon();
-    closeModal();
-    showToast('Mapeo RAC/RAAU actualizado para ' + subject, 'success');
-  }
-
-  function coordOpenConfig(configId) { setPaoActivo(configId); navigate('configuracion'); }
-  function coordCreateConfig() { rt.fns.unlockNewConfig(); navigate('configuracion'); }
-  function coordGoConfig() { navigate('configuracion'); }
 
   // ---- Registro de módulos de pantalla extraídos (src/runtime/features/*) ----
   rt.fns.getCatalogCareer = getCatalogCareer;
@@ -2810,7 +1962,6 @@ export function initLegacyRuntime() {
   rt.fns.myAssignments = myAssignments;
   rt.fns.openModal = openModal;
   rt.fns.closeModal = closeModal;
-  rt.fns.verHorario = verHorario;
   rt.fns.addRecentActivity = addRecentActivity;
   rt.fns.cargarPaoActivo = cargarPaoActivo;
   rt.fns.closeSuccessModal = closeSuccessModal;
@@ -2820,10 +1971,16 @@ export function initLegacyRuntime() {
   rt.fns.setPaoActivo = setPaoActivo;
   rt.fns.sincronizarPaoActivoConUI = sincronizarPaoActivoConUI;
   rt.fns.syncStudentsFromOasis = syncStudentsFromOasis;
+  rt.fns.docenteMatchesExclusion = docenteMatchesExclusion;
+  rt.fns.exclusionIdFor = exclusionIdFor;
+  rt.fns.getDocentes = getDocentes;
+  rt.fns.getExcludedDocentes = getExcludedDocentes;
+  rt.fns.saveVectorCatalogSoon = saveVectorCatalogSoon;
   registerConsultas(rt);
   registerDashboard(rt);
   registerAuth(rt);
   registerConfig(rt);
+  registerCoordinacion(rt);
   window.csedeLoadSubjects = rt.fns.csedeLoadSubjects;
   window.csedeTogglePao = rt.fns.csedeTogglePao;
   window.csedeToggleMat = rt.fns.csedeToggleMat;
@@ -2840,11 +1997,11 @@ export function initLegacyRuntime() {
     else if (page === 'estudiantes') renderEstudiantes();
     else if (page === 'calificaciones') renderCalificaciones();
     else if (page === 'reporte') renderReporte();
-    else if (page === 'coordinacion') renderCoordinacion();
-    else if (page === 'coord-asignaturas') renderCoordinacion('asignaturas');
-    else if (page === 'coord-rac') renderCoordinacion('rac');
-    else if (page === 'coord-raau') renderCoordinacion('raau');
-    else if (page === 'coord-docentes') renderCoordinacion('docentes');
+    else if (page === 'coordinacion') rt.fns.renderCoordinacion();
+    else if (page === 'coord-asignaturas') rt.fns.renderCoordinacion('asignaturas');
+    else if (page === 'coord-rac') rt.fns.renderCoordinacion('rac');
+    else if (page === 'coord-raau') rt.fns.renderCoordinacion('raau');
+    else if (page === 'coord-docentes') rt.fns.renderCoordinacion('docentes');
     else if (page === 'consulta-sede') rt.fns.renderConsultaSede();
     else if (page === 'consulta-informacion') rt.fns.renderConsultaInformacion();
     else if (page === 'consulta-estudiante') rt.fns.renderConsultaEstudiante();
@@ -2996,32 +2153,32 @@ export function initLegacyRuntime() {
   window.doLogin = rt.fns.doLogin;
   window.doLogout = rt.fns.doLogout;
   window.openProfile = rt.fns.openProfile;
-  window.coordSetDocentePassword = coordSetDocentePassword;
-  window.coordLoadSubjects = coordLoadSubjects;
-  window.coordEditMapping = coordEditMapping;
-  window.coordAddMapRow = coordAddMapRow;
-  window.coordSaveMapping = coordSaveMapping;
-  window.coordOpenConfig = coordOpenConfig;
-  window.coordCreateConfig = coordCreateConfig;
-  window.coordGoConfig = coordGoConfig;
-  window.coordLoadSubjectsAssignment = coordLoadSubjectsAssignment;
-  window.coordCreateAssignment = coordCreateAssignment;
-  window.coordAddDocente = coordAddDocente;
-  window.coordImportDocentes = coordImportDocentes;
-  window.coordOmitDocente = coordOmitDocente;
-  window.coordRestoreDocente = coordRestoreDocente;
-  window.coordVerHorario = coordVerHorario;
-  window.coordAddAsignatura = coordAddAsignatura;
-  window.coordManualRAC = coordManualRAC;
-  window.coordRenderRACList = coordRenderRACList;
-  window.coordEditRAC = coordEditRAC;
-  window.coordDeleteRAC = coordDeleteRAC;
-  window.coordManualRAAU = coordManualRAAU;
-  window.coordRenderRAAUList = coordRenderRAAUList;
-  window.coordEditRAAUItem = coordEditRAAUItem;
-  window.coordDeleteRAAUItem = coordDeleteRAAUItem;
-  window.coordTriggerExcel = coordTriggerExcel;
-  window.coordImportExcel = coordImportExcel;
+  window.coordSetDocentePassword = rt.fns.coordSetDocentePassword;
+  window.coordLoadSubjects = rt.fns.coordLoadSubjects;
+  window.coordEditMapping = rt.fns.coordEditMapping;
+  window.coordAddMapRow = rt.fns.coordAddMapRow;
+  window.coordSaveMapping = rt.fns.coordSaveMapping;
+  window.coordOpenConfig = rt.fns.coordOpenConfig;
+  window.coordCreateConfig = rt.fns.coordCreateConfig;
+  window.coordGoConfig = rt.fns.coordGoConfig;
+  window.coordLoadSubjectsAssignment = rt.fns.coordLoadSubjectsAssignment;
+  window.coordCreateAssignment = rt.fns.coordCreateAssignment;
+  window.coordAddDocente = rt.fns.coordAddDocente;
+  window.coordImportDocentes = rt.fns.coordImportDocentes;
+  window.coordOmitDocente = rt.fns.coordOmitDocente;
+  window.coordRestoreDocente = rt.fns.coordRestoreDocente;
+  window.coordVerHorario = rt.fns.coordVerHorario;
+  window.coordAddAsignatura = rt.fns.coordAddAsignatura;
+  window.coordManualRAC = rt.fns.coordManualRAC;
+  window.coordRenderRACList = rt.fns.coordRenderRACList;
+  window.coordEditRAC = rt.fns.coordEditRAC;
+  window.coordDeleteRAC = rt.fns.coordDeleteRAC;
+  window.coordManualRAAU = rt.fns.coordManualRAAU;
+  window.coordRenderRAAUList = rt.fns.coordRenderRAAUList;
+  window.coordEditRAAUItem = rt.fns.coordEditRAAUItem;
+  window.coordDeleteRAAUItem = rt.fns.coordDeleteRAAUItem;
+  window.coordTriggerExcel = rt.fns.coordTriggerExcel;
+  window.coordImportExcel = rt.fns.coordImportExcel;
   window.printDetailedReport = printDetailedReport;
   window.exportReportExcel = exportReportExcel;
   window.exportReportPDF = exportReportPDF;
