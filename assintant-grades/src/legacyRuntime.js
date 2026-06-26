@@ -1,4 +1,7 @@
 import * as oasis from "./services/oasisApi.js";
+import { fmt, pct, formatCedula, escapeHtml, jsStringArg, fileSlug, normalizeEmail, normalizeDocId, clonePlain } from "./runtime/lib/format.js";
+import { downloadTextFile, getIconSVG } from "./runtime/lib/dom.js";
+import { COMPONENT_WEIGHTS, COMPONENT_COLORS, COMPONENT_LABELS, COMPONENTS, COORDINADOR } from "./runtime/constants.js";
 
 // Acceso al correo institucional (Microsoft 365 del dominio espoch.edu.ec).
 const WEBMAIL_URL = "https://login.microsoftonline.com/?whr=espoch.edu.ec";
@@ -98,14 +101,6 @@ export function initLegacyRuntime() {
     }, 700);
   }
 
-  var COMPONENT_WEIGHTS = { ACD: 3.5, APEX: 3.5, AAUT: 3.0 };
-  var COMPONENT_COLORS = { ACD: '#3b82f6', APEX: '#22c55e', AAUT: '#f59e0b' };
-  var COMPONENT_LABELS = { ACD: 'Aprendizaje en Contacto con el Docente', APEX: 'Aprendizaje Práctico Experimental', AAUT: 'Aprendizaje Autónomo' };
-  var COMPONENTS = ['ACD', 'APEX', 'AAUT'];
-  // Usuario base para asignaciones. Su autenticacion se valida en Neon/OASIS.
-  var COORDINADOR = { email: 'ppaguay@espoch.edu.ec', role: 'coordinador', name: 'PAUL PAGUAY', cedula: '' };
-  function normalizeEmail(value) { return String(value || '').trim().toLowerCase(); }
-  function normalizeDocId(value) { return String(value || '').replace(/[^0-9kK]/g, '').toLowerCase(); }
   function getExcludedDocentes() { return Array.isArray(STATE.excludedDocentes) ? STATE.excludedDocentes : []; }
   function docenteMatchesExclusion(email, cedula, ex) {
     if (!ex) return false;
@@ -165,10 +160,6 @@ export function initLegacyRuntime() {
   function save() {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(STATE)); } catch { /* almacenamiento no disponible */ }
     pushToDb();
-  }
-
-  function clonePlain(value, fallback) {
-    try { return JSON.parse(JSON.stringify(value)); } catch { return fallback; }
   }
 
   function getRacsCatalogForConfig(config) {
@@ -1926,8 +1917,6 @@ export function initLegacyRuntime() {
       return sum + (g != null ? g : 0);
     }, 0);
   }
-  function fmt(n) { return Number(n || 0).toFixed(2); }
-  function pct(a, b) { return b > 0 ? Math.round(a / b * 100) : 0; }
   function addRecentActivity(text, type) {
     var now = new Date();
     var timeStr = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
@@ -1940,15 +1929,6 @@ export function initLegacyRuntime() {
   var chartPie = null;
   var chartCoordDocentes = null;
   var chartCoordConfigs = null;
-  function getIconSVG(name, color) {
-    var icons = {
-      users: '<svg viewBox="0 0 24 24" fill="none" stroke="' + color + '" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
-      'check-circle': '<svg viewBox="0 0 24 24" fill="none" stroke="' + color + '" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>',
-      'x-circle': '<svg viewBox="0 0 24 24" fill="none" stroke="' + color + '" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
-      'trending-up': '<svg viewBox="0 0 24 24" fill="none" stroke="' + color + '" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>'
-    };
-    return icons[name] || icons.users;
-  }
 
   function renderDashboard() {
     if (!STATE.activeConfigId) {
@@ -2376,39 +2356,6 @@ export function initLegacyRuntime() {
     if (!status) return;
     status.textContent = msg || '';
     status.style.color = isError ? 'var(--red)' : 'var(--gray-500)';
-  }
-
-  function formatCedula(ced) {
-    var c = String(ced || '').replace(/[^0-9]/g, '');
-    if (c.length === 10) return c.slice(0, 9) + '-' + c.slice(9);
-    return ced || '';
-  }
-
-  function escapeHtml(str) {
-    return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  }
-
-  function jsStringArg(value) {
-    return escapeHtml(JSON.stringify(String(value == null ? '' : value)));
-  }
-
-  function fileSlug(str) {
-    return String(str || 'reporte')
-      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-zA-Z0-9]+/g, '_')
-      .replace(/^_+|_+$/g, '')
-      .toLowerCase() || 'reporte';
-  }
-
-  function downloadTextFile(filename, content, mime) {
-    var blob = new Blob([content], { type: mime || 'text/plain;charset=utf-8' });
-    var a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    URL.revokeObjectURL(a.href);
-    a.remove();
   }
 
   function requireExportData() {
