@@ -104,7 +104,28 @@ export function initLegacyRuntime() {
   var COMPONENTS = ['ACD', 'APEX', 'AAUT'];
   // Usuario base para asignaciones. Su autenticacion se valida en Neon/OASIS.
   var COORDINADOR = { email: 'ppaguay@espoch.edu.ec', role: 'coordinador', name: 'PAUL PAGUAY', cedula: '' };
-  function getDocentes() { return STATE.docentes || []; }
+  function normalizeEmail(value) { return String(value || '').trim().toLowerCase(); }
+  function normalizeDocId(value) { return String(value || '').replace(/[^0-9kK]/g, '').toLowerCase(); }
+  function getExcludedDocentes() { return Array.isArray(STATE.excludedDocentes) ? STATE.excludedDocentes : []; }
+  function docenteMatchesExclusion(email, cedula, ex) {
+    if (!ex) return false;
+    var e = normalizeEmail(email);
+    var c = normalizeDocId(cedula);
+    var exEmail = normalizeEmail(ex.email);
+    var exCedula = normalizeDocId(ex.cedula);
+    if (e && exEmail && e === exEmail) return true;
+    return !!(c && exCedula && c === exCedula);
+  }
+  function isDocenteExcluded(email, cedula) {
+    if (normalizeEmail(email) === normalizeEmail(COORDINADOR.email)) return false;
+    return getExcludedDocentes().some(function (ex) { return docenteMatchesExclusion(email, cedula, ex); });
+  }
+  function exclusionIdFor(email, cedula) {
+    return ('omit_' + (normalizeEmail(email) || normalizeDocId(cedula) || Date.now())).replace(/[^a-zA-Z0-9_.:@-]/g, '_');
+  }
+  function getDocentes() {
+    return (STATE.docentes || []).filter(function (d) { return !isDocenteExcluded(d.email, d.cedula); });
+  }
   function allUsers() { return [COORDINADOR].concat(getDocentes()); }
   function findUserByEmail(email) {
     var lower = String(email || '').toLowerCase();
@@ -127,6 +148,7 @@ export function initLegacyRuntime() {
     gradesByConfig: {},
     teacherAssignments: [],
     docentes: [],
+    excludedDocentes: [],
     students: [],
     grades: [],
     recentActivity: [],
@@ -201,8 +223,9 @@ export function initLegacyRuntime() {
       gradesByConfig: grades
     };
     if (u.role === 'coordinador') {
-      payload.docentes = STATE.docentes;
-      payload.teacherAssignments = STATE.teacherAssignments;
+      payload.docentes = (STATE.docentes || []).filter(function (d) { return !isDocenteExcluded(d.email, d.cedula); });
+      payload.teacherAssignments = (STATE.teacherAssignments || []).filter(function (a) { return !isDocenteExcluded(a.docenteEmail, a.cedula); });
+      payload.excludedDocentes = STATE.excludedDocentes || [];
     }
     try { await oasis.putStore(payload); } catch { /* sin BD: queda el respaldo en localStorage */ }
   }
@@ -213,6 +236,18 @@ export function initLegacyRuntime() {
     if (!u) return;
     var store;
     try { store = await oasis.getStore({ email: u.email, role: u.role }); } catch { return; }
+    if (store && Array.isArray(store.excludedDocentes)) {
+      STATE.excludedDocentes = store.excludedDocentes.map(function (d) {
+        return {
+          id: d.id || d.email || d.cedula || ('omit_' + Date.now()),
+          email: normalizeEmail(d.email),
+          cedula: normalizeDocId(d.cedula),
+          name: d.name || d.nombre || d.nombres || '',
+          nombre: d.nombre || d.name || d.nombres || '',
+          motivo: d.motivo || ''
+        };
+      });
+    }
     if (!store) return;
     if (store.disabled) { dbReady = true; return; } // sin BD: los push harán no-op igualmente
     // Docentes (global). Conservamos contraseñas locales de esta sesión si existen.
@@ -273,6 +308,7 @@ export function initLegacyRuntime() {
       if (!STATE.gradesByConfig) STATE.gradesByConfig = {};
       if (!Array.isArray(STATE.teacherAssignments)) STATE.teacherAssignments = [];
       if (!Array.isArray(STATE.docentes)) STATE.docentes = [];
+      if (!Array.isArray(STATE.excludedDocentes)) STATE.excludedDocentes = [];
       if (!Array.isArray(STATE.students)) STATE.students = [];
       if (!Array.isArray(STATE.grades)) STATE.grades = [];
       if (!Array.isArray(STATE.recentActivity)) STATE.recentActivity = [];
@@ -670,6 +706,9 @@ export function initLegacyRuntime() {
     if (!user || !user.email) return;
     var res = await oasis.claimSession(sessionPayload(user));
     if (res && res.disabled) return;
+    if (res && res.reason === 'excluded_docente') {
+      throw new Error('Esta cuenta fue omitida por coordinacion. Contacte al coordinador para restaurarla.');
+    }
     if (!res || res.ok === false) {
       throw new Error('Esta cuenta ya tiene una sesion activa. Cierre la otra sesion o espere unos minutos.');
     }
@@ -797,7 +836,7 @@ export function initLegacyRuntime() {
   // Cuenta local (coordinador o docente creado por el coordinador).
   function findLocalUser(email, pass) {
     var u = findUserByEmail(email);
-    if (u && u.password === pass) {
+    if (u && u.password === pass && !isDocenteExcluded(u.email, u.cedula)) {
       return { email: u.email, role: u.role, name: u.name, cedula: u.cedula || '', source: 'local' };
     }
     return null;
@@ -837,7 +876,12 @@ export function initLegacyRuntime() {
       try {
         var dbUser = await oasis.loginDb(email, pass);
         if (dbUser && !dbUser.disabled) { await completeLogin(dbUser); return; }
-      } catch { /* credenciales no válidas en BD o sin BD: probamos OASIS */ }
+      } catch (dbErr) {
+        if (email.toLowerCase() === COORDINADOR.email || (dbErr && dbErr.status >= 500)) {
+          throw new Error('No se pudo validar la cuenta interna en Neon. Intente nuevamente en unos segundos.', { cause: dbErr });
+        }
+        /* credenciales no válidas en BD: probamos OASIS */
+      }
       // 4) Autenticación real contra OASIS.
       var result = await oasis.login(email, pass);
       await completeLogin(buildUserFromOasis(email, result));
@@ -2344,6 +2388,10 @@ export function initLegacyRuntime() {
     return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
+  function jsStringArg(value) {
+    return escapeHtml(JSON.stringify(String(value == null ? '' : value)));
+  }
+
   function fileSlug(str) {
     return String(str || 'reporte')
       .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -3655,7 +3703,7 @@ export function initLegacyRuntime() {
       var codCarrera = (res && res.codCarrera) || '';
       var codPeriodo = (STATE.oasisPeriodo && STATE.oasisPeriodo.codigo) || '';
       if (!docentes.length) { setMsg('OASIS no devolvió docentes para esta carrera.', true); return; }
-      var nuevosDoc = 0, nuevasCargas = 0, actualizadas = 0;
+      var nuevosDoc = 0, nuevasCargas = 0, actualizadas = 0, omitidos = 0;
       // Clave normalizada (sin tildes/espacios extra/mayúsculas) para identificar
       // la MISMA carga aunque OASIS o el catálogo varíen acentos o capitalización.
       // Así re-importar ACTUALIZA en lugar de duplicar.
@@ -3678,6 +3726,10 @@ export function initLegacyRuntime() {
         var nombre = ((d.nombres || '') + ' ' + (d.apellidos || '')).trim() || d.cedula;
         var cedNum = String(d.cedula || '').replace(/[^0-9kK]/g, '');
         var email = (d.email && /@/.test(d.email) && !/^null$/i.test(d.email)) ? d.email.toLowerCase() : (cedNum + '@espoch.edu.ec');
+        if (isDocenteExcluded(email, d.cedula)) {
+          omitidos++;
+          return;
+        }
         var existente = findUserByEmail(email);
         if (!existente) {
           // Sin contraseña: el coordinador debe asignarla antes de que el docente ingrese.
@@ -3725,6 +3777,7 @@ export function initLegacyRuntime() {
       save();
       closeModal();
       renderCoordinacion('asignaturas');
+      if (omitidos) showToast(omitidos + ' docentes omitidos por lista de exclusion.', 'success');
       showToast(nuevosDoc + ' docentes nuevos · ' + nuevasCargas + ' cargas nuevas · ' + actualizadas + ' actualizadas', 'success');
     } catch (err) {
       setMsg((err && err.offline) ? 'OASIS/BFF no disponible.' : ((err && err.message) || 'Error al importar docentes.'), true);
@@ -3736,6 +3789,7 @@ export function initLegacyRuntime() {
     if (!target) return;
     // El coordinador también es docente: aparece en la lista (marcado).
     var docentes = [COORDINADOR].concat(getDocentes());
+    var omitted = getExcludedDocentes();
     target.innerHTML = '<div style="font-size:.78rem;font-weight:700;color:var(--gray-800);margin:8px 0">Docentes registrados (' + docentes.length + ')</div>' +
       (docentes.map(function (d) {
         var asigs = (STATE.teacherAssignments || []).filter(function (a) { return a.docenteEmail === d.email; });
@@ -3747,19 +3801,35 @@ export function initLegacyRuntime() {
         var claveBadge = d.password
           ? '<span class="badge badge-green">Con clave</span>'
           : '<span class="badge badge-amber">Sin clave</span>';
+        var omitButton = esCoord ? '' : '<button class="btn btn-danger btn-sm" onclick="coordOmitDocente(' + jsStringArg(d.email) + ')">Omitir</button>';
         return '<div class="item-row" style="align-items:flex-start;flex-wrap:wrap">' +
           '<div style="font-size:.8rem;flex:1;min-width:220px"><strong>' + d.name + '</strong> ' + rolTag + claveBadge +
           '<div style="font-size:.7rem;color:var(--gray-500)">' + d.email + (d.cedula ? ' · ' + d.cedula : '') + '</div>' +
           '<div style="margin-top:6px">' + asigHtml + '</div></div>' +
           '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+          omitButton +
           '<button class="btn btn-ghost btn-sm" onclick="coordVerHorario(\'' + d.email + '\')">Ver horario</button>' +
           '<button class="btn btn-edit btn-sm" onclick="coordSetDocentePassword(\'' + d.email + '\')">Asignar contraseña</button>' +
           '</div></div>';
       }).join(''));
+    if (omitted.length) {
+      target.innerHTML += '<div style="font-size:.78rem;font-weight:700;color:var(--gray-800);margin:14px 0 8px">Docentes omitidos (' + omitted.length + ')</div>' +
+        omitted.map(function (d) {
+          var nombre = d.name || d.nombre || d.nombres || d.email || d.cedula || 'Docente';
+          var detalle = [d.email, d.cedula, d.motivo ? ('Motivo: ' + d.motivo) : ''].filter(Boolean).join(' - ');
+          return '<div class="item-row" style="align-items:flex-start;flex-wrap:wrap;background:var(--red-bg)">' +
+            '<div style="font-size:.8rem;flex:1;min-width:220px"><strong>' + escapeHtml(nombre) + '</strong> <span class="badge badge-red">Omitido</span>' +
+            '<div style="font-size:.7rem;color:var(--gray-500)">' + escapeHtml(detalle) + '</div>' +
+            '<div style="font-size:.68rem;color:var(--gray-500);margin-top:4px">No se importara desde OASIS ni podra iniciar sesion mientras este omitido.</div></div>' +
+            '<button class="btn btn-edit btn-sm" onclick="coordRestoreDocente(' + jsStringArg(d.id) + ')">Restaurar</button>' +
+            '</div>';
+        }).join('');
+    }
   }
 
   // ---- Horario de clases del docente ----
   function renderHorarioGrid(clases) {
+    if (Array.isArray(clases)) return renderHorarioGridV2(clases);
     if (!clases || !clases.length) {
       return '<div style="font-size:.82rem;color:var(--gray-500)">Sin horario registrado en OASIS para este período.</div>';
     }
@@ -3783,6 +3853,64 @@ export function initLegacyRuntime() {
         }).join('') + '</tr>';
     }).join('');
     return '<div style="overflow-x:auto"><table class="data" style="font-size:.74rem;min-width:520px"><thead>' + head + '</thead><tbody>' + body + '</tbody></table></div>';
+  }
+
+  function renderHorarioGridV2(clases) {
+    if (!clases || !clases.length) {
+      return '<div class="horario-empty">Sin horario registrado en OASIS para este periodo.</div>';
+    }
+    var diasDef = [['LUN', 'Lunes'], ['MAR', 'Martes'], ['MIE', 'Miercoles'], ['JUE', 'Jueves'], ['VIE', 'Viernes'], ['SAB', 'Sabado'], ['DOM', 'Domingo']];
+    var dayKey = function (c) { return String((c && (c.codDia || c.dia)) || '').trim().slice(0, 3).toUpperCase(); };
+    var fmtHour = function (t) { return String(t || '').trim().slice(0, 5); };
+    var toMin = function (t) { var p = String(t || '').split(':'); return (parseInt(p[0], 10) || 0) * 60 + (parseInt(p[1], 10) || 0); };
+    var present = {};
+    var subjects = {};
+    clases.forEach(function (c) {
+      var dk = dayKey(c);
+      if (dk) present[dk] = true;
+      if (c && c.materia) subjects[c.materia] = true;
+    });
+    var cols = diasDef.filter(function (d) { return present[d[0]]; });
+    if (!cols.length) cols = diasDef.slice(0, 5);
+    var slots = [];
+    clases.forEach(function (c) {
+      var k = fmtHour(c.inicio) + ' - ' + fmtHour(c.fin);
+      if (k.trim() !== '-' && slots.indexOf(k) === -1) slots.push(k);
+    });
+    slots.sort(function (a, b) { return toMin(a.split(' - ')[0]) - toMin(b.split(' - ')[0]); });
+    var byKey = {};
+    clases.forEach(function (c) {
+      var k = fmtHour(c.inicio) + ' - ' + fmtHour(c.fin) + '|' + dayKey(c);
+      if (!byKey[k]) byKey[k] = [];
+      byKey[k].push(c);
+    });
+    var firstHour = slots.length ? slots[0].split(' - ')[0] : '';
+    var lastHour = slots.length ? slots[slots.length - 1].split(' - ')[1] : '';
+    var summary =
+      '<div class="horario-summary">' +
+      '<div><strong>' + clases.length + '</strong><span>clases</span></div>' +
+      '<div><strong>' + cols.length + '</strong><span>dias</span></div>' +
+      '<div><strong>' + Object.keys(subjects).length + '</strong><span>materias</span></div>' +
+      '<div><strong>' + escapeHtml(firstHour + (lastHour ? ' - ' + lastHour : '')) + '</strong><span>rango</span></div>' +
+      '</div>';
+    var head = '<tr><th class="horario-hour-head">Hora</th>' + cols.map(function (d) { return '<th>' + d[1] + '</th>'; }).join('') + '</tr>';
+    var body = slots.map(function (s) {
+      return '<tr><td class="horario-hour">' + escapeHtml(s) + '</td>' +
+        cols.map(function (d) {
+          var items = byKey[s + '|' + d[0]] || [];
+          if (!items.length) return '<td class="horario-empty-cell"></td>';
+          return '<td>' + items.map(function (item) {
+            var materia = item.materia || 'Clase';
+            var detalle = [item.aula || item.paralelo || '', item.docente || ''].filter(Boolean).join(' - ');
+            return '<div class="horario-class-chip"><div>' + escapeHtml(materia) + '</div>' +
+              (detalle ? '<small>' + escapeHtml(detalle) + '</small>' : '') + '</div>';
+          }).join('') + '</td>';
+        }).join('') + '</tr>';
+    }).join('');
+    return '<div class="horario-shell">' + summary +
+      '<div class="horario-table-wrap"><table class="horario-table"><thead>' + head + '</thead><tbody>' + body + '</tbody></table></div>' +
+      '<div class="horario-note">Horario consultado desde OASIS. Las celdas vacias indican que no hay clase registrada en ese bloque.</div>' +
+      '</div>';
   }
 
   function showHorarioModal(nombre, clases) {
@@ -3812,6 +3940,55 @@ export function initLegacyRuntime() {
     if (!d) return;
     var asg = (STATE.teacherAssignments || []).filter(function (a) { return a.docenteEmail === email; });
     verHorario(d.name, d.cedula || (asg[0] && asg[0].cedula) || '', asg);
+  }
+
+  function coordOmitDocente(email) {
+    var normalized = normalizeEmail(email);
+    if (!normalized || normalized === normalizeEmail(COORDINADOR.email)) {
+      showToast('No se puede omitir al coordinador.', 'error');
+      return;
+    }
+    var d = (STATE.docentes || []).find(function (item) { return normalizeEmail(item.email) === normalized; });
+    var asg = (STATE.teacherAssignments || []).filter(function (a) { return normalizeEmail(a.docenteEmail) === normalized; });
+    if (!d && !asg.length) { showToast('No se encontro el docente.', 'error'); return; }
+    var cedula = (d && d.cedula) || (asg[0] && asg[0].cedula) || '';
+    var nombre = (d && (d.name || d.nombre)) || (asg[0] && asg[0].docenteNombre) || normalized;
+    openModal('Omitir docente',
+      '<p style="font-size:.82rem;color:var(--gray-600);margin-bottom:10px">El docente <strong>' + escapeHtml(nombre) + '</strong> se quitara de las cargas activas y se ignorara en futuras importaciones desde OASIS.</p>' +
+      '<div class="form-group"><label class="form-label">Motivo (opcional)</label><input class="form-input" id="coord-omit-reason" placeholder="Ej. ya no labora en la institucion"></div>',
+      [
+        { label: 'Cancelar', cls: 'btn-ghost', action: 'close' },
+        { label: 'Omitir', cls: 'btn-danger', action: function () {
+          var reasonEl = document.getElementById('coord-omit-reason');
+          var motivo = reasonEl ? reasonEl.value.trim() : '';
+          var ex = { id: exclusionIdFor(normalized, cedula), email: normalized, cedula: normalizeDocId(cedula), name: nombre, nombre: nombre, motivo: motivo };
+          var found = false;
+          STATE.excludedDocentes = getExcludedDocentes().map(function (item) {
+            if (docenteMatchesExclusion(normalized, cedula, item)) {
+              found = true;
+              return Object.assign({}, item, ex);
+            }
+            return item;
+          });
+          if (!found) STATE.excludedDocentes.push(ex);
+          STATE.docentes = (STATE.docentes || []).filter(function (item) { return !docenteMatchesExclusion(item.email, item.cedula, ex); });
+          STATE.teacherAssignments = (STATE.teacherAssignments || []).filter(function (item) { return !docenteMatchesExclusion(item.docenteEmail, item.cedula, ex); });
+          save();
+          closeModal();
+          renderCoordinacion('asignaturas');
+          showToast('Docente omitido. No se volvera a importar desde OASIS.', 'success');
+        } }
+      ]);
+  }
+
+  function coordRestoreDocente(id) {
+    var targetId = String(id || '');
+    var before = getExcludedDocentes().length;
+    STATE.excludedDocentes = getExcludedDocentes().filter(function (item) { return String(item.id || '') !== targetId; });
+    if (STATE.excludedDocentes.length === before) { showToast('No se encontro el registro omitido.', 'error'); return; }
+    save();
+    renderCoordinacion('asignaturas');
+    showToast('Docente restaurado. Use Importar de OASIS para traer sus cargas nuevamente.', 'success');
   }
 
   function coordSetDocentePassword(email) {
@@ -4652,6 +4829,8 @@ export function initLegacyRuntime() {
   window.coordCreateAssignment = coordCreateAssignment;
   window.coordAddDocente = coordAddDocente;
   window.coordImportDocentes = coordImportDocentes;
+  window.coordOmitDocente = coordOmitDocente;
+  window.coordRestoreDocente = coordRestoreDocente;
   window.coordVerHorario = coordVerHorario;
   window.coordAddAsignatura = coordAddAsignatura;
   window.coordManualRAC = coordManualRAC;

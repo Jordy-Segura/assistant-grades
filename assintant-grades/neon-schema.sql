@@ -36,6 +36,17 @@ CREATE TABLE IF NOT EXISTS public.app_user_sessions (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS public.app_docentes_excluidos (
+  id TEXT PRIMARY KEY,
+  email TEXT,
+  cedula TEXT,
+  nombres TEXT,
+  motivo TEXT,
+  data JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS public.app_asignaciones (
   id TEXT PRIMARY KEY,
   docente_email TEXT NOT NULL,
@@ -174,6 +185,8 @@ CREATE TABLE IF NOT EXISTS public.app_vectores_catalogo (
 
 CREATE INDEX IF NOT EXISTS idx_app_docentes_rol ON public.app_docentes_sistema(rol);
 CREATE INDEX IF NOT EXISTS idx_app_user_sessions_expires ON public.app_user_sessions(expires_at);
+CREATE INDEX IF NOT EXISTS idx_app_docentes_excluidos_email ON public.app_docentes_excluidos(email);
+CREATE INDEX IF NOT EXISTS idx_app_docentes_excluidos_cedula ON public.app_docentes_excluidos(cedula);
 CREATE INDEX IF NOT EXISTS idx_app_asignaciones_docente ON public.app_asignaciones(docente_email);
 CREATE INDEX IF NOT EXISTS idx_app_asignaciones_periodo ON public.app_asignaciones(cod_periodo);
 CREATE INDEX IF NOT EXISTS idx_app_config_owner ON public.app_configuraciones_pao(owner_email);
@@ -195,6 +208,10 @@ FOR EACH ROW EXECUTE FUNCTION public.app_set_updated_at();
 
 DROP TRIGGER IF EXISTS trg_app_user_sessions_updated_at ON public.app_user_sessions;
 CREATE TRIGGER trg_app_user_sessions_updated_at BEFORE UPDATE ON public.app_user_sessions
+FOR EACH ROW EXECUTE FUNCTION public.app_set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_app_docentes_excluidos_updated_at ON public.app_docentes_excluidos;
+CREATE TRIGGER trg_app_docentes_excluidos_updated_at BEFORE UPDATE ON public.app_docentes_excluidos
 FOR EACH ROW EXECUTE FUNCTION public.app_set_updated_at();
 
 DROP TRIGGER IF EXISTS trg_app_asignaciones_updated_at ON public.app_asignaciones;

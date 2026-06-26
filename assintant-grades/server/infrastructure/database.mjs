@@ -24,6 +24,7 @@ const COORDINADOR = {
 const SESSION_TTL_MS = 3 * 60 * 1000;
 
 let schemaReady = false;
+let schemaReadyPromise = null;
 
 function hashPassword(plain) {
   const salt = randomBytes(16).toString("hex");
@@ -44,6 +45,10 @@ function verifyPassword(plain, stored) {
 
 function cleanEmail(value) {
   return String(value || "").trim().toLowerCase();
+}
+
+function cleanDocId(value) {
+  return String(value || "").replace(/[^0-9kK]/g, "").toLowerCase();
 }
 
 function jsonClone(value, fallback) {
@@ -109,25 +114,55 @@ export class Database {
     return this.pool.query(text, params);
   }
 
-  async #tableExists(tableName) {
-    const r = await this.#q("SELECT to_regclass($1) AS name", [`public.${tableName}`]);
+  #run(client, text, params) {
+    return client ? client.query(text, params) : this.#q(text, params);
+  }
+
+  async #tableExists(tableName, client = null) {
+    const r = await this.#run(client, "SELECT to_regclass($1) AS name", [`public.${tableName}`]);
     return Boolean(r.rows[0] && r.rows[0].name);
   }
 
   async ensureSchema() {
     if (!this.pool || schemaReady) return;
-    const schemaPath = resolve(__dirname, "..", "..", "neon-schema.sql");
-    if (!existsSync(schemaPath)) throw new Error("No se encontro neon-schema.sql.");
-    await this.#q(readFileSync(schemaPath, "utf-8"));
-    await this.#seedCoordinator();
-    await this.#migrateLegacyTables();
-    schemaReady = true;
+    if (schemaReadyPromise) return schemaReadyPromise;
+    schemaReadyPromise = this.#ensureSchemaLocked();
+    try {
+      await schemaReadyPromise;
+    } finally {
+      schemaReadyPromise = null;
+    }
   }
 
-  async #seedCoordinator() {
-    const r = await this.#q("SELECT 1 FROM app_docentes_sistema WHERE email=$1", [COORDINADOR.email]);
+  async #ensureSchemaLocked() {
+    const schemaPath = resolve(__dirname, "..", "..", "neon-schema.sql");
+    if (!existsSync(schemaPath)) throw new Error("No se encontro neon-schema.sql.");
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT pg_advisory_xact_lock(hashtext('assistant_grades_schema_v1'))");
+      if (schemaReady) {
+        await client.query("COMMIT");
+        return;
+      }
+      await client.query(readFileSync(schemaPath, "utf-8"));
+      await this.#seedCoordinator(client);
+      await this.#migrateLegacyTables(client);
+      await client.query("COMMIT");
+      schemaReady = true;
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  async #seedCoordinator(client = null) {
+    const r = await this.#run(client, "SELECT 1 FROM app_docentes_sistema WHERE email=$1", [COORDINADOR.email]);
     if (r.rowCount > 0) return;
-    await this.#q(
+    await this.#run(
+      client,
       `INSERT INTO app_docentes_sistema(email,nombres,cedula,rol,password_hash,data)
        VALUES ($1,$2,$3,$4,$5,$6)`,
       [
@@ -141,9 +176,9 @@ export class Database {
     );
   }
 
-  async #migrateLegacyTables() {
-    if (await this.#tableExists("docente")) {
-      await this.#q(`
+  async #migrateLegacyTables(client = null) {
+    if (await this.#tableExists("docente", client)) {
+      await this.#run(client, `
         INSERT INTO app_docentes_sistema(email,nombres,cedula,rol,password_hash,data)
         SELECT lower(email), nombre, cedula, coalesce(rol,'docente'), password_hash, '{}'::jsonb
         FROM docente
@@ -151,8 +186,8 @@ export class Database {
         ON CONFLICT (email) DO NOTHING
       `).catch(() => {});
     }
-    if (await this.#tableExists("asignacion")) {
-      await this.#q(`
+    if (await this.#tableExists("asignacion", client)) {
+      await this.#run(client, `
         INSERT INTO app_asignaciones(id,docente_email,carrera,asignatura,pao,paralelo,data)
         SELECT id, lower(coalesce(docente_email,'')), carrera, asignatura, pao, paralelo, data
         FROM asignacion
@@ -160,8 +195,8 @@ export class Database {
         ON CONFLICT (id) DO NOTHING
       `).catch(() => {});
     }
-    if (await this.#tableExists("configuracion")) {
-      await this.#q(`
+    if (await this.#tableExists("configuracion", client)) {
+      await this.#run(client, `
         INSERT INTO app_configuraciones_pao(id,owner_email,carrera,asignatura,pao,aporte,data,saved_at)
         SELECT id, lower(coalesce(owner_email,'')), carrera, asignatura, pao,
                coalesce(data->'courseConfig'->>'aporte',''), data, saved_at
@@ -184,6 +219,25 @@ export class Database {
        ORDER BY nombres`
     );
     const asigRes = await this.#q("SELECT data FROM app_asignaciones WHERE activo = true ORDER BY updated_at DESC");
+    const excludedRes = await this.#q(
+      "SELECT id,email,cedula,nombres,motivo,data FROM app_docentes_excluidos ORDER BY updated_at DESC"
+    );
+    const excludedRows = excludedRes.rows.map((r) => ({
+      id: r.id,
+      email: cleanEmail(r.email),
+      cedula: cleanDocId(r.cedula),
+      nombres: r.nombres || "",
+      motivo: r.motivo || "",
+      data: r.data || {},
+    }));
+    const isExcluded = (item = {}) => {
+      const itemEmail = cleanEmail(item.email || item.docenteEmail);
+      const itemCedula = cleanDocId(item.cedula);
+      return excludedRows.some((ex) => {
+        if (itemEmail && ex.email && itemEmail === ex.email) return true;
+        return Boolean(itemCedula && ex.cedula && itemCedula === ex.cedula);
+      });
+    };
     const configsRes = isCoordinator
       ? await this.#q("SELECT id,data FROM app_configuraciones_pao WHERE activo = true ORDER BY updated_at DESC")
       : await this.#q(
@@ -231,8 +285,19 @@ export class Database {
     }
 
     return {
-      docentes: docentesRes.rows.filter((d) => d.rol !== "coordinador"),
-      teacherAssignments: asigRes.rows.map((r) => r.data),
+      docentes: docentesRes.rows.filter((d) => d.rol !== "coordinador" && !isExcluded(d)),
+      teacherAssignments: asigRes.rows.map((r) => r.data).filter((a) => !isExcluded(a)),
+      excludedDocentes: isCoordinator
+        ? excludedRows.map((d) => ({
+            id: d.id,
+            email: d.email,
+            cedula: d.cedula,
+            nombre: d.nombres,
+            name: d.nombres,
+            motivo: d.motivo,
+            data: d.data,
+          }))
+        : [],
       savedConfigs: configuraciones,
       studentsByConfig,
       gradesByConfig,
@@ -266,17 +331,35 @@ export class Database {
     const email = cleanEmail(payload.email);
     const role = payload.role || "";
     const isCoordinator = role === "coordinador" || role === "admin";
+    const excludedDocentes = isCoordinator && Array.isArray(payload.excludedDocentes)
+      ? payload.excludedDocentes
+      : null;
+    const excludedEmails = new Set((excludedDocentes || []).map((d) => cleanEmail(d.email)).filter(Boolean));
+    const excludedCedulas = new Set((excludedDocentes || []).map((d) => cleanDocId(d.cedula)).filter(Boolean));
+    const isExcludedPayload = (item = {}) => {
+      const itemEmail = cleanEmail(item.email || item.docenteEmail);
+      const itemCedula = cleanDocId(item.cedula);
+      return Boolean((itemEmail && excludedEmails.has(itemEmail)) || (itemCedula && excludedCedulas.has(itemCedula)));
+    };
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
 
       if (isCoordinator && Array.isArray(payload.docentes)) {
-        await this.#upsertDocentes(client, payload.docentes);
+        await this.#upsertDocentes(client, payload.docentes.filter((d) => !isExcludedPayload(d)));
       }
 
       if (isCoordinator && Array.isArray(payload.teacherAssignments)) {
         await client.query("DELETE FROM app_asignaciones");
-        for (const a of payload.teacherAssignments) await this.#upsertAsignacion(client, a);
+        for (const a of payload.teacherAssignments.filter((item) => !isExcludedPayload(item))) {
+          await this.#upsertAsignacion(client, a);
+        }
+      }
+
+      if (excludedDocentes) {
+        await client.query("DELETE FROM app_docentes_excluidos");
+        for (const d of excludedDocentes) await this.#upsertExcludedDocente(client, d);
+        await this.#applyDocenteExclusions(client, excludedDocentes);
       }
 
       if (Array.isArray(payload.savedConfigs)) {
@@ -314,6 +397,67 @@ export class Database {
     } finally {
       client.release();
     }
+  }
+
+  async #upsertExcludedDocente(client, d) {
+    const email = cleanEmail(d.email);
+    const cedula = cleanDocId(d.cedula);
+    if (!email && !cedula) return;
+    const id = safeText(d.id || email || cedula).replace(/[^a-zA-Z0-9_.:@-]+/g, "_").slice(0, 180);
+    const nombre = d.nombre || d.name || d.nombres || "";
+    await client.query(
+      `INSERT INTO app_docentes_excluidos(id,email,cedula,nombres,motivo,data)
+       VALUES ($1,$2,$3,$4,$5,$6)
+       ON CONFLICT (id) DO UPDATE
+       SET email=$2,cedula=$3,nombres=$4,motivo=$5,data=$6,updated_at=now()`,
+      [id, email, cedula, nombre, safeText(d.motivo || ""), jsonClone(d, {})]
+    );
+  }
+
+  async #applyDocenteExclusions(client, excludedDocentes) {
+    const emails = [...new Set((excludedDocentes || []).map((d) => cleanEmail(d.email)).filter(Boolean))];
+    const cedulas = [...new Set((excludedDocentes || []).map((d) => cleanDocId(d.cedula)).filter(Boolean))];
+    if (emails.length) {
+      await client.query(
+        "UPDATE app_docentes_sistema SET activo=false,updated_at=now() WHERE rol <> 'coordinador' AND lower(email) = ANY($1::text[])",
+        [emails]
+      );
+      await client.query(
+        "UPDATE app_asignaciones SET activo=false,updated_at=now() WHERE lower(docente_email) = ANY($1::text[])",
+        [emails]
+      );
+    }
+    if (cedulas.length) {
+      await client.query(
+        `UPDATE app_docentes_sistema
+         SET activo=false,updated_at=now()
+         WHERE rol <> 'coordinador'
+           AND lower(regexp_replace(coalesce(cedula,''),'[^0-9kK]','','g')) = ANY($1::text[])`,
+        [cedulas]
+      );
+      await client.query(
+        `UPDATE app_asignaciones
+         SET activo=false,updated_at=now()
+         WHERE lower(regexp_replace(coalesce(data->>'cedula',''),'[^0-9kK]','','g')) = ANY($1::text[])`,
+        [cedulas]
+      );
+    }
+  }
+
+  async #isDocenteExcluded(loginEmail, cedula = "") {
+    const email = cleanEmail(loginEmail);
+    const docId = cleanDocId(cedula);
+    if (email === COORDINADOR.email) return false;
+    if (!email && !docId) return false;
+    const r = await this.#q(
+      `SELECT 1
+       FROM app_docentes_excluidos
+       WHERE ($1 <> '' AND lower(coalesce(email,'')) = $1)
+          OR ($2 <> '' AND lower(regexp_replace(coalesce(cedula,''),'[^0-9kK]','','g')) = $2)
+       LIMIT 1`,
+      [email, docId]
+    );
+    return r.rowCount > 0;
   }
 
   async #upsertDocentes(client, docentes) {
@@ -713,6 +857,7 @@ export class Database {
     );
     if (r.rowCount === 0) return null;
     const u = r.rows[0];
+    if (await this.#isDocenteExcluded(u.email, u.cedula)) return null;
     if (!u.password_hash || !verifyPassword(password, u.password_hash)) return null;
     return { email: u.email, name: u.nombres, cedula: u.cedula || "", role: u.rol, source: "db" };
   }
@@ -741,6 +886,9 @@ export class Database {
     const email = cleanEmail(loginEmail);
     const sid = safeText(sessionId).trim();
     if (!email || !sid) throw new Error("Sesion invalida.");
+    if (await this.#isDocenteExcluded(email, data.cedula || "")) {
+      return { ok: false, reason: "excluded_docente" };
+    }
     const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
     const client = await this.pool.connect();
     try {

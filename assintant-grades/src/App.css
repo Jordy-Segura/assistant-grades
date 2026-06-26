@@ -513,6 +513,140 @@ table { border-collapse: collapse; }
 .modal-title { font-size: 1rem; font-weight: 700; color: var(--gray-800); margin-bottom: 14px; }
 .modal-actions { display: flex; gap: 8px; margin-top: 16px; justify-content: flex-end; flex-wrap: wrap; }
 
+.modal:has(.horario-shell) {
+  width: min(980px, 94vw);
+  max-width: 980px !important;
+  padding: 24px 28px;
+  overflow: hidden;
+}
+.modal:has(.horario-shell) .modal-title {
+  margin-bottom: 16px;
+  padding-right: 8px;
+  font-size: 1.05rem;
+}
+.horario-shell {
+  display: grid;
+  gap: 14px;
+}
+.horario-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+.horario-summary > div {
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius);
+  background: var(--gray-50);
+  padding: 10px 12px;
+}
+.horario-summary strong {
+  display: block;
+  color: var(--gray-900);
+  font-size: 1rem;
+  line-height: 1.1;
+}
+.horario-summary span {
+  display: block;
+  margin-top: 3px;
+  color: var(--gray-500);
+  font-size: .68rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.horario-table-wrap {
+  max-height: min(58vh, 560px);
+  overflow: auto;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-lg);
+  background: var(--white);
+}
+.horario-table {
+  width: 100%;
+  min-width: 760px;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.horario-table th,
+.horario-table td {
+  border-right: 1px solid var(--gray-200);
+  border-bottom: 1px solid var(--gray-200);
+  padding: 12px;
+  vertical-align: middle;
+}
+.horario-table th {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  background: var(--gray-50);
+  color: var(--gray-500);
+  font-size: .72rem;
+  font-weight: 800;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  text-align: center;
+}
+.horario-table th:last-child,
+.horario-table td:last-child { border-right: 0; }
+.horario-table tbody tr:last-child td { border-bottom: 0; }
+.horario-hour-head,
+.horario-hour {
+  width: 135px;
+  min-width: 135px;
+  position: sticky;
+  left: 0;
+  z-index: 3;
+}
+.horario-hour {
+  background: var(--white);
+  color: var(--gray-700);
+  font-family: var(--mono);
+  font-size: .84rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.horario-table tbody tr:nth-child(odd) .horario-hour,
+.horario-table tbody tr:nth-child(odd) td { background: var(--gray-50); }
+.horario-empty-cell { background: var(--white); }
+.horario-class-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 54px;
+  padding: 9px 10px;
+  border: 1px solid rgba(24,99,220,.18);
+  border-radius: var(--radius);
+  background: var(--espoch-blue-light);
+  color: #1d4ed8;
+  text-align: center;
+  font-size: .78rem;
+  font-weight: 800;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.horario-class-chip + .horario-class-chip { margin-top: 7px; }
+.horario-class-chip small {
+  margin-top: 4px;
+  color: var(--gray-500);
+  font-size: .66rem;
+  font-weight: 700;
+}
+.horario-note,
+.horario-empty {
+  color: var(--gray-500);
+  font-size: .76rem;
+  line-height: 1.45;
+}
+.horario-empty {
+  padding: 18px;
+  border: 1px dashed var(--gray-300);
+  border-radius: var(--radius);
+  background: var(--gray-50);
+  text-align: center;
+}
+
 /* ===== SUCCESS MODAL ===== */
 .success-checkmark {
   width: 72px; height: 72px; border-radius: 50%;
@@ -742,6 +876,10 @@ table.data tbody tr:last-child td { border-bottom: none; }
   .grade-input, .grade-readonly, .grade-total-input { width: 44px; font-size: .7rem; padding: 4px 2px; }
   .app-footer { font-size: .66rem; padding: 6px 12px; }
   .modal { padding: 18px; width: 94vw; }
+  .modal:has(.horario-shell) { width: 94vw; padding: 18px; }
+  .horario-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .horario-table { min-width: 700px; }
+  .horario-hour-head, .horario-hour { width: 120px; min-width: 120px; }
   .signatures-container { flex-direction: column; gap: 18px; }
   .report-header { padding: 8px 10px; }
 }
@@ -759,6 +897,15 @@ table.data tbody tr:last-child td { border-bottom: none; }
   .grade-input, .grade-readonly, .grade-total-input { width: 40px; font-size: .66rem; padding: 3px 1px; }
   #toast { right: 12px; bottom: 12px; font-size: .74rem; max-width: calc(100vw - 24px); }
   .modal { padding: 14px; width: 95vw; max-width: 95vw; }
+  .modal:has(.horario-shell) { width: 95vw; padding: 14px; }
+  .modal:has(.horario-shell) .modal-title { font-size: .92rem; }
+  .horario-summary { gap: 8px; }
+  .horario-summary > div { padding: 8px 10px; }
+  .horario-table-wrap { max-height: 56vh; }
+  .horario-table { min-width: 620px; }
+  .horario-table th, .horario-table td { padding: 9px; }
+  .horario-hour-head, .horario-hour { width: 104px; min-width: 104px; }
+  .horario-class-chip { min-height: 48px; padding: 8px; font-size: .72rem; }
   .modal-actions .btn { flex: 1; justify-content: center; }
   .course-banner { padding: 12px 14px; }
   .course-banner-fields { gap: 10px; flex-direction: column; }

@@ -38,7 +38,10 @@ async function request(path, { method = "GET", body } = {}) {
   }
 
   if (!response.ok) {
-    throw new Error((data && data.error) || `Error ${response.status} consultando OASIS`);
+    const err = new Error((data && data.error) || `Error ${response.status} consultando OASIS`);
+    err.status = response.status;
+    err.path = path;
+    throw err;
   }
   return data;
 }
