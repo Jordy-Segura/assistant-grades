@@ -11,3 +11,4 @@ export const COMPONENT_LABELS = { ACD: 'Aprendizaje en Contacto con el Docente',
 export const COMPONENTS = ['ACD', 'APEX', 'AAUT'];
 // Usuario base para asignaciones. Su autenticacion se valida en Neon/OASIS.
 export const COORDINADOR = { email: 'ppaguay@espoch.edu.ec', role: 'coordinador', name: 'PAUL PAGUAY', cedula: '' };
+export const ROLE_LABEL = { admin: 'Administrador', docente: 'Docente', coordinador: 'Coordinador' };
