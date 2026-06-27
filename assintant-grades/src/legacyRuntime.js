@@ -265,7 +265,9 @@ export function initLegacyRuntime() {
         return {
           email: d.email, nombre: d.nombre, name: d.nombre, cedula: d.cedula || '',
           role: d.rol || 'docente', rol: d.rol || 'docente',
-          password: (local && local.password) || ''
+          password: (local && local.password) || '',
+          // El backend indica si ya tiene password_hash (la clave en claro no se envía).
+          hasPassword: Boolean(d.has_password) || Boolean(local && local.password)
         };
       });
     }
@@ -688,7 +690,7 @@ export function initLegacyRuntime() {
   function addRecentActivity(text, type) {
     var now = new Date();
     var timeStr = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
-    STATE.recentActivity.unshift({ text: text, type: type, time: timeStr, date: now.toLocaleDateString() });
+    STATE.recentActivity.unshift({ text: text, type: type, time: timeStr, date: now.toLocaleDateString(), email: STATE.currentUser && STATE.currentUser.email });
     if (STATE.recentActivity.length > 20) STATE.recentActivity.pop();
   }
 

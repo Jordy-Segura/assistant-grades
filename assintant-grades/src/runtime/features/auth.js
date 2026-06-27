@@ -235,6 +235,15 @@ export function registerAuth(rt) {
       }
       // 4) Autenticación real contra OASIS.
       var result = await oasis.login(email, pass);
+      // OASIS sin credenciales de servicio devuelve un usuario MOCK ("MODO DEV /
+      // USUARIO DE PRUEBA", cédula 0600000000). NO se debe crear una cuenta con ese
+      // mock: solo ingresan cuentas reales (Neon/coordinación u OASIS con credenciales).
+      var perfilOasis = (result && result.perfil) || {};
+      var oasisMock = perfilOasis.cedula === '0600000000' ||
+        /MODO\s*DEV|USUARIO\s*DE\s*PRUEBA/i.test((perfilOasis.nombres || '') + ' ' + (perfilOasis.apellidos || ''));
+      if (oasisMock) {
+        throw new Error('No se pudo validar contra OASIS. Ingrese con la clave asignada por coordinación.');
+      }
       await completeLogin(buildUserFromOasis(email, result));
     } catch (err) {
       if (msgEl) {

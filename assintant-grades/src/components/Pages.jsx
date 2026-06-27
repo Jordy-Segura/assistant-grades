@@ -13,12 +13,12 @@ export default function Pages() {
         </div>
         <div className="course-banner" id="dash-banner"></div>
         <div className="stat-grid" id="dash-stats"></div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 320px",gap:"18px",marginBottom:"18px"}}>
+        <div className="dash-charts-grid">
           <div className="card"><div className="card-header"><div className="card-title">Distribución de Calificaciones</div></div><div className="card-body"><canvas id="dash-chart-distribution" height="220"></canvas></div></div>
           <div className="card"><div className="card-header"><div className="card-title">Notas por Estudiante</div></div><div className="card-body"><canvas id="dash-chart-students" height="220"></canvas></div></div>
           <div className="card"><div className="card-header"><div className="card-title">Resumen</div></div><div className="card-body" style={{display:"flex",flexDirection:"column",gap:"14px"}}><div style={{textAlign:"center"}}><canvas id="dash-chart-pie" width="160" height="160"></canvas><div id="dash-pie-label" style={{fontSize:".8rem",color:"var(--gray-500)",marginTop:"8px"}}></div></div><div id="dash-ra-summary"></div></div></div>
         </div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"18px",marginBottom:"18px"}}>
+        <div className="dash-secondary-grid">
           <div className="card"><div className="card-header"><div className="card-title">Progreso por Componente</div></div><div className="card-body" id="dash-comp-progress"></div></div>
           <div className="card"><div className="card-header"><div className="card-title">Actividad Reciente</div></div><div className="card-body" id="dash-recent-activity"></div></div>
         </div>

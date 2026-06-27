@@ -444,7 +444,7 @@ export function registerGradesScreens(rt) {
         margin: { left: 24, right: 24 }
       });
       var name = fileSlug([meta.asignatura, meta.aporte, kind || 'calificaciones'].filter(Boolean).join('_'));
-      doc.rt.fns.save(name + '.pdf');
+      doc.save(name + '.pdf');
       rt.fns.showToast('PDF generado.', 'success');
     } catch {
       rt.fns.showToast('No se pudo generar PDF automatico. Revise la conexion a internet para cargar la libreria PDF.', 'error');

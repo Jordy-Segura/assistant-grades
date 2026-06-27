@@ -427,7 +427,15 @@ export function registerConfig(rt) {
   // Distintos aportes (MEDIO/FIN/RECUPERACIÓN) o períodos SÍ son válidos por separado.
   function configKey(cc) {
     cc = cc || {};
-    var n = function (v) { return String(v == null ? '' : v).trim().toUpperCase(); };
+    // Normaliza quitando tildes y colapsando espacios: así "TECNOLOGÍAS DE LA
+    // INFORMACIÓN" (configs viejas) y "TECNOLOGIAS DE LA INFORMACION" (catálogo)
+    // cuentan como la MISMA carrera. Sin esto, un duplicado de medio ciclo guardado
+    // con tildes no se detectaba (el de fin de ciclo sí, por estar sin tildes).
+    var n = function (v) {
+      return String(v == null ? '' : v)
+        .normalize('NFD').replace(/[̀-ͯ]/g, '')
+        .replace(/\s+/g, ' ').trim().toUpperCase();
+    };
     return [n(cc.carrera), n(cc.pao), n(cc.asignatura), n(cc.aporte), n(cc.periodoAcademico)].join('||');
   }
 
@@ -623,7 +631,7 @@ export function registerConfig(rt) {
       var isActive = cfg.id === rt.STATE.activeConfigId;
       return '<div class="saved-config-item' + (isActive ? ' active' : '') + '">' +
         '<div style="flex:1"><div class="saved-config-title">' + (cfg.courseConfig.asignatura || 'Sin asignatura') + (isActive ? ' <span style="font-size:.7rem;color:var(--espoch-green);font-weight:600">(Activo)</span>' : '') + '</div>' +
-        '<div class="saved-config-sub">' + (cfg.courseConfig.carrera || '—') + ' · PAO ' + (cfg.courseConfig.pao || '—') + ' · ' + acts + ' actividades · ' + raau + ' RAAU · ' + cfg.savedAt + '</div></div>' +
+        '<div class="saved-config-sub">' + (cfg.courseConfig.carrera || '—') + ' · PAO ' + (cfg.courseConfig.pao || '—') + ' · ' + (cfg.courseConfig.aporte || '—') + ' · ' + acts + ' actividades · ' + raau + ' RAAU · ' + cfg.savedAt + '</div></div>' +
         '<div style="display:flex;gap:6px"><button class="btn btn-sm btn-edit" onclick="editSavedConfigName(\'' + cfg.id + '\')">Editar</button><button class="btn btn-sm btn-danger" onclick="deleteSavedConfig(\'' + cfg.id + '\')">Eliminar</button></div>' +
       '</div>';
     }).join('');

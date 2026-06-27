@@ -213,7 +213,8 @@ export class Database {
     const isCoordinator = role === "coordinador" || role === "admin";
 
     const docentesRes = await this.#q(
-      `SELECT email,nombres AS nombre,cedula,rol
+      `SELECT email,nombres AS nombre,cedula,rol,
+              (password_hash IS NOT NULL AND password_hash <> '') AS has_password
        FROM app_docentes_sistema
        WHERE activo = true
        ORDER BY nombres`

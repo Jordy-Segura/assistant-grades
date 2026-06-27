@@ -121,7 +121,8 @@ export function registerDashboard(rt) {
   function renderRecentActivity() {
     var container = document.getElementById('dash-recent-activity');
     if (!container) return;
-    var activities = rt.STATE.recentActivity.slice(0, 8);
+    var me = rt.STATE.currentUser && rt.STATE.currentUser.email;
+    var activities = (rt.STATE.recentActivity || []).filter(function (a) { return a.email === me; }).slice(0, 8);
     if (activities.length === 0) {
       container.innerHTML = '<div style="text-align:center;padding:20px;color:var(--gray-400);font-size:.82rem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:32px;height:32px;margin:0 auto 8px;display:block;opacity:.3"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>Aún no hay actividad reciente</div>';
       return;
