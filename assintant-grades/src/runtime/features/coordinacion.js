@@ -114,12 +114,25 @@ export function registerCoordinacion(rt) {
     var racCodes = ['RAC1', 'RAC2', 'RAC3', 'RAC4', 'RAC5', 'RAC6', 'RAC7', 'RAC8'];
     var subjectRacCounter = {};
     var subjectCounter = {};
+    // Una asignatura puede tener varias configuraciones (p. ej. MEDIO y FIN de ciclo).
+    // El aporte a RAC es de la ASIGNATURA en general: se unen los RAAU de TODAS sus
+    // configuraciones y se cuenta cada RAAU una sola vez (por su id), de modo que la
+    // misma RAAU repetida en dos ciclos NO se cuente doble.
+    var raauBySubject = {};
     completion.forEach(function (item) {
       var cfg = item.cfg || {};
       var subject = (cfg.courseConfig && cfg.courseConfig.asignatura) || 'Sin asignatura';
+      if (!raauBySubject[subject]) raauBySubject[subject] = {};
       (cfg.raauEntries || []).forEach(function (r) {
-        var racObj = rt.CAREER_RACS.find(function (rac) { return rac.id === r.racId || rac.code === r.racId; });
-        var racCode = racObj ? racObj.code : (String(r.racId || '').toUpperCase());
+        var raauKey = r.id || (String(r.code || '') + '|' + String(r.racId || ''));
+        raauBySubject[subject][raauKey] = r.racId;
+      });
+    });
+    Object.keys(raauBySubject).forEach(function (subject) {
+      Object.keys(raauBySubject[subject]).forEach(function (raauKey) {
+        var racId = raauBySubject[subject][raauKey];
+        var racObj = rt.CAREER_RACS.find(function (rac) { return rac.id === racId || rac.code === racId; });
+        var racCode = racObj ? racObj.code : (String(racId || '').toUpperCase());
         if (racCodes.indexOf(racCode) === -1) racCodes.push(racCode);
         if (!subjectRacCounter[subject]) subjectRacCounter[subject] = {};
         if (subjectRacCounter[subject][racCode] == null) subjectRacCounter[subject][racCode] = 0;
