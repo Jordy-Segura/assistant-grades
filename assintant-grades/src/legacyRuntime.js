@@ -934,6 +934,7 @@ export function initLegacyRuntime() {
   window.exportReportExcel = rt.fns.exportReportExcel;
   window.exportReportPDF = rt.fns.exportReportPDF;
   window.showReportQR = rt.fns.showReportQR;
+  window.expandChart = rt.fns.expandChart;
   window.navigate = navigate;
 
   var carrera = document.getElementById('cfg-carrera');

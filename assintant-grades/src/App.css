@@ -241,8 +241,23 @@ table { border-collapse: collapse; }
 .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 18px; }
 
 /* Panel Principal (Dashboard) responsive */
-.dash-charts-grid { display: grid; grid-template-columns: 1fr 1fr 320px; gap: 18px; margin-bottom: 18px; }
+.dash-charts-grid { display: grid; grid-template-columns: 1fr 1fr 320px; gap: 18px; margin-bottom: 18px; align-items: stretch; }
 .dash-secondary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 18px; }
+/* Tarjetas de gráfico: misma altura en la fila y área de lienzo uniforme */
+.dash-charts-grid > .card { display: flex; flex-direction: column; }
+.dash-charts-grid > .card > .card-body { flex: 1 1 auto; }
+.chart-canvas-wrap { position: relative; height: 240px; }
+.chart-canvas-wrap > canvas { width: 100% !important; height: 100% !important; }
+/* Gráfico ampliable: afordancia de click */
+.chart-card { position: relative; cursor: pointer; transition: box-shadow .15s ease, transform .15s ease; }
+.chart-card:hover { box-shadow: 0 8px 24px rgba(15, 23, 42, .12); transform: translateY(-2px); }
+.chart-expand-ico { position: absolute; top: 12px; right: 12px; z-index: 2; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 7px; color: var(--gray-400); background: var(--gray-50); opacity: .6; transition: opacity .15s ease, color .15s ease, background .15s ease; }
+.chart-card:hover .chart-expand-ico { opacity: 1; color: var(--espoch-red); background: #fde8e8; }
+/* Modal del gráfico ampliado: se ensancha con :has() (mismo patrón que el
+   modal de horarios), porque el .modal base tiene width:480px fijo. */
+.modal:has(.chart-modal-body) { width: min(900px, 94vw); max-width: 900px !important; }
+.chart-modal-body { position: relative; width: 100%; height: 62vh; min-height: 320px; max-height: 70vh; }
+.chart-modal-body > canvas { width: 100% !important; height: 100% !important; }
 @media (max-width: 1200px) {
   .dash-charts-grid { grid-template-columns: 1fr 1fr; }
   .stat-grid { grid-template-columns: repeat(2, 1fr); }

@@ -2,6 +2,13 @@ const callGlobal = (name, ...args) => {
   if (typeof window !== "undefined" && typeof window[name] === "function") return window[name](...args);
 };
 
+const expandIco = (
+  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <polyline points="15 3 21 3 21 9" /><polyline points="9 21 3 21 3 15" />
+    <line x1="21" y1="3" x2="14" y2="10" /><line x1="3" y1="21" x2="10" y2="14" />
+  </svg>
+);
+
 export default function Pages() {
   return (
     <div id="main">
@@ -14,9 +21,9 @@ export default function Pages() {
         <div className="course-banner" id="dash-banner"></div>
         <div className="stat-grid" id="dash-stats"></div>
         <div className="dash-charts-grid">
-          <div className="card"><div className="card-header"><div className="card-title">Distribución de Calificaciones</div></div><div className="card-body"><canvas id="dash-chart-distribution" height="220"></canvas></div></div>
-          <div className="card"><div className="card-header"><div className="card-title">Notas por Estudiante</div></div><div className="card-body"><canvas id="dash-chart-students" height="220"></canvas></div></div>
-          <div className="card"><div className="card-header"><div className="card-title">Resumen</div></div><div className="card-body" style={{display:"flex",flexDirection:"column",gap:"14px"}}><div style={{textAlign:"center"}}><canvas id="dash-chart-pie" width="160" height="160"></canvas><div id="dash-pie-label" style={{fontSize:".8rem",color:"var(--gray-500)",marginTop:"8px"}}></div></div><div id="dash-ra-summary"></div></div></div>
+          <div className="card chart-card" onClick={() => callGlobal("expandChart", "distribution")} title="Click para ampliar"><span className="chart-expand-ico">{expandIco}</span><div className="card-header"><div className="card-title">Distribución de Calificaciones</div></div><div className="card-body"><div className="chart-canvas-wrap"><canvas id="dash-chart-distribution"></canvas></div></div></div>
+          <div className="card chart-card" onClick={() => callGlobal("expandChart", "students")} title="Click para ampliar"><span className="chart-expand-ico">{expandIco}</span><div className="card-header"><div className="card-title">Notas por Estudiante</div></div><div className="card-body"><div className="chart-canvas-wrap"><canvas id="dash-chart-students"></canvas></div></div></div>
+          <div className="card chart-card" onClick={() => callGlobal("expandChart", "pie")} title="Click para ampliar"><span className="chart-expand-ico">{expandIco}</span><div className="card-header"><div className="card-title">Resumen</div></div><div className="card-body" style={{display:"flex",flexDirection:"column",gap:"14px"}}><div style={{textAlign:"center"}}><canvas id="dash-chart-pie" width="160" height="160"></canvas><div id="dash-pie-label" style={{fontSize:".8rem",color:"var(--gray-500)",marginTop:"8px"}}></div></div><div id="dash-ra-summary"></div></div></div>
         </div>
         <div className="dash-secondary-grid">
           <div className="card"><div className="card-header"><div className="card-title">Progreso por Componente</div></div><div className="card-body" id="dash-comp-progress"></div></div>

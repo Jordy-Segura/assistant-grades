@@ -228,10 +228,21 @@ export function registerAuth(rt) {
         var dbUser = await oasis.loginDb(email, pass);
         if (dbUser && !dbUser.disabled) { await completeLogin(dbUser); return; }
       } catch (dbErr) {
-        if (email.toLowerCase() === COORDINADOR.email || (dbErr && dbErr.status >= 500)) {
-          throw new Error('No se pudo validar la cuenta interna en Neon. Intente nuevamente en unos segundos.', { cause: dbErr });
+        var isCoord = email.toLowerCase() === COORDINADOR.email;
+        var wrongCreds = dbErr && dbErr.status >= 400 && dbErr.status < 500; // 401/400 en Neon
+        if (wrongCreds) {
+          // La contraseña no coincide en Neon. El coordinador es una cuenta INTERNA
+          // (no se valida contra OASIS): hay que decirle claramente que la clave es
+          // incorrecta, NO "reintente en unos segundos" (que parecía un fallo del servidor).
+          if (isCoord) throw new Error('Correo o contraseña incorrectos.', { cause: dbErr });
+          /* docente: puede existir en OASIS -> continuamos al paso 4 */
+        } else if (isCoord || (dbErr && dbErr.status >= 500)) {
+          // Error del servidor/Neon (5xx) o coordinador sin conexión: fallo transitorio.
+          var neonErr = new Error('No se pudo validar la cuenta interna en Neon. Intente nuevamente en unos segundos.', { cause: dbErr });
+          if (dbErr && dbErr.offline) neonErr.offline = true;
+          throw neonErr;
         }
-        /* credenciales no válidas en BD: probamos OASIS */
+        /* docente con error leve: probamos OASIS */
       }
       // 4) Autenticación real contra OASIS.
       var result = await oasis.login(email, pass);

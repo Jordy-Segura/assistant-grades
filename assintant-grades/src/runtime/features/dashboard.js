@@ -14,6 +14,11 @@ export function registerDashboard(rt) {
   var chartDistribution = null;
   var chartStudents = null;
   var chartPie = null;
+  var expandedChart = null;
+  // Últimos datos calculados, para reconstruir el gráfico en grande al ampliar.
+  var lastTotals = [];
+  var lastStudents = [];
+  var lastPie = { approved: 0, failed: 0, noGrade: 0 };
 
   function renderDashboard() {
     if (!rt.STATE.activeConfigId) {
@@ -45,6 +50,9 @@ export function registerDashboard(rt) {
       return '<div class="stat-card animate-in"><div class="stat-row"><div><div class="stat-label">' + item.title + '</div><div class="stat-val" style="color:' + item.color + '">' + item.value + '</div><div class="stat-sub">' + item.sub + '</div></div><div class="stat-icon" style="background:' + item.color + '18">' + getIconSVG(item.icon, item.color) + '</div></div></div>';
     }).join('');
 
+    lastTotals = allTotals;
+    lastStudents = students;
+    lastPie = { approved: approvedCount, failed: failedCount, noGrade: noGradeCount };
     renderDistributionChart(allTotals);
     renderStudentsChart(students, allTotals);
     renderPieChart(approvedCount, failedCount, noGradeCount);
@@ -138,5 +146,47 @@ export function registerDashboard(rt) {
     }).join('');
   }
 
-  Object.assign(rt.fns, { renderDashboard });
+  // Configuración del gráfico en versión GRANDE (modal). Reutiliza los últimos
+  // datos calculados por renderDashboard; responsive para llenar el modal.
+  function buildBigConfig(key) {
+    if (key === 'distribution') {
+      var dc = [0, 0, 0, 0];
+      lastTotals.forEach(function (t) { if (t < 5) dc[0]++; else if (t < 7) dc[1]++; else if (t < 9) dc[2]++; else dc[3]++; });
+      return {
+        type: 'bar',
+        data: { labels: ['0-4 (crítico)', '5-6 (bajo)', '7-8 (bueno)', '9-10 (excelente)'], datasets: [{ label: 'Estudiantes', data: dc, backgroundColor: ['#ef4444', '#f59e0b', '#22c55e', '#3b82f6'], borderRadius: 6 }] },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+      };
+    }
+    if (key === 'students') {
+      var fullNames = lastStudents.map(function (s) { return (s.apellidos + ' ' + s.nombres).trim(); });
+      return {
+        type: 'bar',
+        data: { labels: fullNames, datasets: [{ label: 'Nota', data: lastTotals, backgroundColor: lastTotals.map(function (t) { return t >= 7 ? '#22c55e' : '#ef4444'; }), borderRadius: 4 }] },
+        options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true, max: 10 } } }
+      };
+    }
+    return {
+      type: 'doughnut',
+      data: { labels: ['Aprobados', 'Reprobados', 'Sin nota'], datasets: [{ data: [lastPie.approved, lastPie.failed, lastPie.noGrade], backgroundColor: ['#22c55e', '#ef4444', '#9ca3af'], borderWidth: 0 }] },
+      options: { responsive: true, maintainAspectRatio: false, cutout: '62%', plugins: { legend: { display: true, position: 'bottom', labels: { padding: 16, font: { size: 13 } } } } }
+    };
+  }
+
+  // Amplía un gráfico del Panel Principal en el modal para verlo mejor.
+  function expandChart(key) {
+    if (typeof window.Chart === 'undefined' || !rt.STATE.activeConfigId) return;
+    var titles = { distribution: 'Distribución de Calificaciones', students: 'Notas por Estudiante', pie: 'Resumen de Aprobación' };
+    rt.fns.openModal(
+      titles[key] || 'Gráfico',
+      '<div class="chart-modal-body"><canvas id="dash-chart-expanded"></canvas></div>',
+      [{ cls: 'btn-secondary', label: 'Cerrar', action: 'close' }]
+    );
+    // El ancho lo da el CSS .modal:has(.chart-modal-body) (patrón :has como horarios).
+    if (expandedChart) { expandedChart.destroy(); expandedChart = null; }
+    var ctx = document.getElementById('dash-chart-expanded');
+    if (ctx) expandedChart = new window.Chart(ctx, buildBigConfig(key));
+  }
+
+  Object.assign(rt.fns, { renderDashboard, expandChart });
 }
