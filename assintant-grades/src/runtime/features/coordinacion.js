@@ -13,6 +13,11 @@ import { escapeHtml, jsStringArg, normalizeEmail, normalizeDocId } from "../lib/
 export function registerCoordinacion(rt) {
   var chartCoordDocentes = null;
   var chartCoordConfigs = null;
+  var chartDocAvance = null;
+  var chartDocCarga = null;
+  var lastDocAvance = { labels: ['Sin datos'], data: [0] };
+  var lastDocCarga = { labels: ['Sin datos'], data: [0] };
+  var DOC_PALETTE = ['#1d4ed8', '#0891b2', '#0d9488', '#16a34a', '#f59e0b', '#f97316', '#8b5cf6', '#ec4899'];
   var expandedCoordChart = null;
   // Últimos datos calculados, para reconstruir el gráfico en grande al ampliar.
   var lastCoordDoc = { labels: ['Sin datos'], datasets: [{ label: 'Sin datos', data: [0], backgroundColor: '#cbd5e1' }] };
@@ -81,7 +86,8 @@ export function registerCoordinacion(rt) {
     target.innerHTML =
       '<div class="coord-layout">' +
       '<div class="stat-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:0"><div class="stat-card"><div class="stat-label">Configuraciones activas</div><div class="stat-val" style="color:var(--gray-800)">' + totalConfigs + '</div><div class="stat-sub">Histórico guardado</div></div><div class="stat-card"><div class="stat-label">Estudiantes monitoreados</div><div class="stat-val" style="color:var(--green)">' + totalStudents + '</div><div class="stat-sub">Suma de todas las configuraciones</div></div><div class="stat-card"><div class="stat-label">Avance promedio</div><div class="stat-val" style="color:var(--amber)">' + avgCompletion + '%</div><div class="stat-sub">Carga global de notas</div></div></div>' +
-      ((showOverview || showDocentes) ? '<div class="coord-chart-grid"><div class="card chart-card" onclick="window.expandCoordChart(\'docentes\')" title="Click para ampliar"><span class="chart-expand-ico">' + EXPAND_ICO + '</span><div class="card-header"><div class="card-title">Aporte por asignatura a cada RAC</div></div><div class="card-body"><canvas id="coord-chart-docentes" height="200"></canvas></div></div><div class="card chart-card" onclick="window.expandCoordChart(\'configs\')" title="Click para ampliar"><span class="chart-expand-ico">' + EXPAND_ICO + '</span><div class="card-header"><div class="card-title">Top asignaturas que más aportan RAC</div></div><div class="card-body"><canvas id="coord-chart-configs" height="200"></canvas></div></div></div>' : '') +
+      (showOverview ? '<div class="coord-chart-grid"><div class="card chart-card" onclick="window.expandCoordChart(\'docentes\')" title="Click para ampliar"><span class="chart-expand-ico">' + EXPAND_ICO + '</span><div class="card-header"><div class="card-title">Aporte por asignatura a cada RAC</div></div><div class="card-body"><canvas id="coord-chart-docentes" height="200"></canvas></div></div><div class="card chart-card" onclick="window.expandCoordChart(\'configs\')" title="Click para ampliar"><span class="chart-expand-ico">' + EXPAND_ICO + '</span><div class="card-header"><div class="card-title">Top asignaturas que más aportan RAC</div></div><div class="card-body"><canvas id="coord-chart-configs" height="200"></canvas></div></div></div>' : '') +
+      (showDocentes ? '<div class="coord-chart-grid"><div class="card chart-card" onclick="window.expandCoordChart(\'docAvance\')" title="Click para ampliar"><span class="chart-expand-ico">' + EXPAND_ICO + '</span><div class="card-header"><div class="card-title">Avance de calificación por docente</div></div><div class="card-body"><canvas id="coord-chart-doc-avance" height="200"></canvas></div></div><div class="card chart-card" onclick="window.expandCoordChart(\'docCarga\')" title="Click para ampliar"><span class="chart-expand-ico">' + EXPAND_ICO + '</span><div class="card-header"><div class="card-title">Carga de asignaturas por docente</div></div><div class="card-body"><canvas id="coord-chart-doc-carga" height="200"></canvas></div></div></div>' : '') +
       (showDocentes ? '<div class="card" style="margin-bottom:16px"><div class="card-header"><div class="card-title">Monitoreo docente</div></div><div class="card-body"><table class="data"><thead><tr><th>Docente</th><th>Asignaturas</th><th>Avance</th></tr></thead><tbody>' + (docenteRows || '<tr><td colspan="3">Sin datos</td></tr>') + '</tbody></table></div></div>' : '') +
       (showAsignaturas ? '<div class="card"><div class="card-header"><div class="card-title">Docentes y sus asignaturas</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-success btn-sm" onclick="coordImportDocentes()">⬇ Importar de OASIS</button><button class="btn btn-primary btn-sm" onclick="coordAddDocente()">+ Docente</button></div></div><div class="card-body"><p style="font-size:.78rem;color:var(--gray-500);margin-bottom:6px">Importa docentes con sus cargas (materia · nivel · paralelo) desde OASIS y asígnales una contraseña. Cada docente solo verá y calificará sus propias asignaturas.</p><div id="coord-docentes-list"></div></div></div>' : '') +
       (showAsignaturas ? '<div class="card"><div class="card-header"><div class="card-title">Asignar una asignatura manualmente</div></div><div class="card-body"><div class="form-grid"><div class="form-group"><label class="form-label">Docente</label><select class="form-select" id="coord-doc-email"><option value="">Seleccione docente</option>' + docenteOptions + '</select></div><div class="form-group"><label class="form-label">Carrera</label><select class="form-select" id="coord-career-assignment" onchange="coordLoadSubjectsAssignment()"><option value="">Seleccione carrera</option>' + careerOptions + '</select></div></div><div class="form-grid"><div class="form-group"><label class="form-label">PAO</label><select class="form-select" id="coord-pao-assignment"><option value="">Seleccione PAO</option></select></div><div class="form-group"><label class="form-label">Asignatura</label><select class="form-select" id="coord-subject-assignment"><option value="">Seleccione asignatura</option></select></div></div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-primary btn-sm" onclick="coordCreateAssignment()">Asignar asignatura</button><button class="btn btn-ghost btn-sm" onclick="coordAddAsignatura()">+ Crear asignatura en malla</button></div></div></div>' : '') +
@@ -90,7 +96,8 @@ export function registerCoordinacion(rt) {
       (showRAAU ? '<div class="card"><div class="card-header"><div class="card-title">Gestión global RAAU por asignatura</div></div><div class="card-body"><div class="form-grid"><div class="form-group"><label class="form-label">Carrera</label><select class="form-select" id="coord-career" onchange="coordLoadSubjects()"><option value="">Seleccione carrera</option>' + careerOptions + '</select></div><div class="form-group"><label class="form-label">Asignatura</label><select class="form-select" id="coord-subject" onchange="coordRenderRAAUList()"><option value="">Seleccione asignatura</option></select></div></div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-edit btn-sm" onclick="coordEditMapping()">Editar mapeo RAC/RAAU</button><button class="btn btn-edit btn-sm" onclick="coordManualRAAU()">Agregar RAAU manual</button><button class="btn btn-ghost btn-sm" onclick="coordTriggerExcel()">Importar Excel RAC/RAAU</button><input type="file" id="coord-excel-input" accept=".xlsx,.xls,.csv" style="display:none" onchange="coordImportExcel(this.files)"></div><div id="coord-raau-list" style="margin-top:10px"></div></div></div>' : '') +
       (showDocentes ? '<div class="card"><div class="card-header"><div class="card-title">Docentes por Asignatura (Matriz)</div></div><div class="card-body"><table class="data"><thead><tr><th>Docente</th><th>Asignaturas asignadas</th><th>Total</th></tr></thead><tbody>' + coordDocenteMatrixRows() + '</tbody></table></div></div>' : '') +
       '</div>';
-    if (showOverview || showDocentes) renderCoordCharts(docentes, completion);
+    if (showOverview) renderCoordCharts(docentes, completion);
+    if (showDocentes) renderDocenteCharts(docentes);
     if (showRAC) coordRenderRACList();
     if (showRAAU) coordRenderRAAUList();
     if (showAsignaturas) coordRenderDocentesList();
@@ -204,6 +211,37 @@ export function registerCoordinacion(rt) {
       });
     }
   }
+  function avanceColor(v) { return v >= 70 ? '#22c55e' : v >= 40 ? '#f59e0b' : '#ef4444'; }
+
+  // Gráficos de la vista "Docentes por Asignatura" (distintos a los de Coordinación):
+  // avance de calificación por docente y carga (nº de asignaturas) por docente.
+  function renderDocenteCharts(docentesMap) {
+    if (typeof window.Chart === 'undefined') return;
+    var names = Object.keys(docentesMap);
+    var avances = names.map(function (n) { return Math.round(docentesMap[n].total / docentesMap[n].count); });
+    var cargas = names.map(function (n) { return docentesMap[n].count; });
+    lastDocAvance = { labels: names.length ? names.slice() : ['Sin datos'], data: names.length ? avances.slice() : [0] };
+    lastDocCarga = { labels: names.length ? names.slice() : ['Sin datos'], data: names.length ? cargas.slice() : [0] };
+    var ctxA = document.getElementById('coord-chart-doc-avance');
+    if (ctxA) {
+      if (chartDocAvance) chartDocAvance.destroy();
+      chartDocAvance = new window.Chart(ctxA, {
+        type: 'bar',
+        data: { labels: lastDocAvance.labels, datasets: [{ label: 'Avance', data: lastDocAvance.data, backgroundColor: lastDocAvance.data.map(avanceColor), borderRadius: 6 }] },
+        options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: function (c) { return c.parsed.x + '% de notas cargadas'; } } } }, scales: { x: { beginAtZero: true, max: 100, ticks: { callback: function (v) { return v + '%'; } } } } }
+      });
+    }
+    var ctxC = document.getElementById('coord-chart-doc-carga');
+    if (ctxC) {
+      if (chartDocCarga) chartDocCarga.destroy();
+      chartDocCarga = new window.Chart(ctxC, {
+        type: 'doughnut',
+        data: { labels: lastDocCarga.labels, datasets: [{ data: lastDocCarga.data, backgroundColor: lastDocCarga.labels.map(function (_l, i) { return DOC_PALETTE[i % DOC_PALETTE.length]; }), borderWidth: 0 }] },
+        options: { responsive: true, maintainAspectRatio: false, cutout: '58%', plugins: { legend: { position: 'bottom', labels: { padding: 12, font: { size: 12 } } }, tooltip: { callbacks: { label: function (c) { return c.label + ': ' + c.parsed + ' asignatura' + (c.parsed !== 1 ? 's' : ''); } } } } }
+      });
+    }
+  }
+
   // Configuración del gráfico de Coordinación en versión GRANDE (modal).
   function buildCoordBigConfig(key) {
     if (key === 'docentes') {
@@ -211,6 +249,20 @@ export function registerCoordinacion(rt) {
         type: 'bar',
         data: { labels: lastCoordDoc.labels, datasets: lastCoordDoc.datasets.map(function (d) { return { label: d.label, data: d.data.slice(), backgroundColor: d.backgroundColor, borderRadius: d.borderRadius }; }) },
         options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } }, scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true, ticks: { precision: 0 } } } }
+      };
+    }
+    if (key === 'docAvance') {
+      return {
+        type: 'bar',
+        data: { labels: lastDocAvance.labels, datasets: [{ label: 'Avance', data: lastDocAvance.data.slice(), backgroundColor: lastDocAvance.data.map(avanceColor), borderRadius: 6 }] },
+        options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true, max: 100, ticks: { callback: function (v) { return v + '%'; } } } } }
+      };
+    }
+    if (key === 'docCarga') {
+      return {
+        type: 'doughnut',
+        data: { labels: lastDocCarga.labels, datasets: [{ data: lastDocCarga.data.slice(), backgroundColor: lastDocCarga.labels.map(function (_l, i) { return DOC_PALETTE[i % DOC_PALETTE.length]; }), borderWidth: 0 }] },
+        options: { responsive: true, maintainAspectRatio: false, cutout: '58%', plugins: { legend: { position: 'bottom', labels: { padding: 16, font: { size: 13 } } } } }
       };
     }
     return {
@@ -223,7 +275,7 @@ export function registerCoordinacion(rt) {
   // Amplía un gráfico del Panel de Coordinación en el modal para verlo mejor.
   function expandCoordChart(key) {
     if (typeof window.Chart === 'undefined') return;
-    var titles = { docentes: 'Aporte por asignatura a cada RAC', configs: 'Top asignaturas que más aportan RAC' };
+    var titles = { docentes: 'Aporte por asignatura a cada RAC', configs: 'Top asignaturas que más aportan RAC', docAvance: 'Avance de calificación por docente', docCarga: 'Carga de asignaturas por docente' };
     rt.fns.openModal(
       titles[key] || 'Gráfico',
       '<div class="chart-modal-body"><canvas id="coord-chart-expanded"></canvas></div>',
