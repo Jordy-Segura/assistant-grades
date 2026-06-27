@@ -1128,7 +1128,7 @@ export function registerGradesScreens(rt) {
     if (!rt.STATE.activeConfigId || rt.STATE.students.length === 0 || rt.STATE.activities.length === 0) {
       document.getElementById('rep-stats').innerHTML = '';
       document.getElementById('rep-dist').innerHTML = '';
-      document.getElementById('rep-content').innerHTML = '<div style="padding:40px;text-align:center;color:var(--gray-500);font-size:.9rem">' +
+      document.getElementById('rep-printable').innerHTML = '<div style="padding:40px;text-align:center;color:var(--gray-500);font-size:.9rem">' +
         (!rt.STATE.activeConfigId ? 'Seleccione un PAO desde MIS PAOs para generar el reporte.' :
         rt.STATE.students.length === 0 ? 'No hay estudiantes registrados para este PAO.' :
         'No hay actividades configuradas.') +
