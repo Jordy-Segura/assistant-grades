@@ -111,34 +111,36 @@ export function registerCoordinacion(rt) {
 
   function renderCoordCharts(docentesMap, completion) {
     if (typeof window.Chart === 'undefined') return;
-    var racCodes = ['RAC1', 'RAC2', 'RAC3', 'RAC4', 'RAC5', 'RAC6', 'RAC7', 'RAC8'];
+    // Solo los RAC reales de la carrera (5), tomados del catálogo.
+    var racCodes = (rt.CAREER_RACS || []).map(function (r) { return String(r.code).toUpperCase(); });
+    if (!racCodes.length) racCodes = ['RAC1', 'RAC2', 'RAC3', 'RAC4', 'RAC5'];
     var subjectRacCounter = {};
     var subjectCounter = {};
-    // Una asignatura puede tener varias configuraciones (p. ej. MEDIO y FIN de ciclo).
-    // El aporte a RAC es de la ASIGNATURA en general: se unen los RAAU de TODAS sus
-    // configuraciones y se cuenta cada RAAU una sola vez (por su id), de modo que la
-    // misma RAAU repetida en dos ciclos NO se cuente doble.
-    var raauBySubject = {};
+    // El aporte a RAC es de la ASIGNATURA según el MAPEO OFICIAL (catálogo): para cada
+    // asignatura configurada tomamos sus RAC del catálogo (no de la config guardada, que
+    // puede traer un mapeo antiguo). Cada asignatura se cuenta una sola vez (no por ciclo)
+    // y cada RAC una sola vez por asignatura.
+    var seenSubject = {};
     completion.forEach(function (item) {
       var cfg = item.cfg || {};
-      var subject = (cfg.courseConfig && cfg.courseConfig.asignatura) || 'Sin asignatura';
-      if (!raauBySubject[subject]) raauBySubject[subject] = {};
-      (cfg.raauEntries || []).forEach(function (r) {
-        var raauKey = r.id || (String(r.code || '') + '|' + String(r.racId || ''));
-        raauBySubject[subject][raauKey] = r.racId;
-      });
-    });
-    Object.keys(raauBySubject).forEach(function (subject) {
-      Object.keys(raauBySubject[subject]).forEach(function (raauKey) {
-        var racId = raauBySubject[subject][raauKey];
-        var racObj = rt.CAREER_RACS.find(function (rac) { return rac.id === racId || rac.code === racId; });
-        var racCode = racObj ? racObj.code : (String(racId || '').toUpperCase());
+      var cc = cfg.courseConfig || {};
+      var subject = cc.asignatura || 'Sin asignatura';
+      if (seenSubject[subject]) return;
+      seenSubject[subject] = true;
+      // Lookup de carrera NORMALIZADO (tolera acentos/mayúsculas en cc.carrera).
+      var catCareer = rt.fns.getCatalogCareer(cc.carrera);
+      var catAsig = catCareer && catCareer.asignaturas && catCareer.asignaturas[subject];
+      var raaus = (catAsig && catAsig.raau && catAsig.raau.length) ? catAsig.raau : (cfg.raauEntries || []);
+      var racSeen = {};
+      raaus.forEach(function (r) {
+        var racObj = rt.CAREER_RACS.find(function (rac) { return rac.id === r.racId || rac.code === r.racId; });
+        var racCode = racObj ? racObj.code : (String(r.racId || '').toUpperCase());
+        if (!racCode || racSeen[racCode]) return;
+        racSeen[racCode] = true;
         if (racCodes.indexOf(racCode) === -1) racCodes.push(racCode);
         if (!subjectRacCounter[subject]) subjectRacCounter[subject] = {};
-        if (subjectRacCounter[subject][racCode] == null) subjectRacCounter[subject][racCode] = 0;
-        subjectRacCounter[subject][racCode]++;
-        if (!subjectCounter[subject]) subjectCounter[subject] = 0;
-        subjectCounter[subject]++;
+        subjectRacCounter[subject][racCode] = 1;
+        subjectCounter[subject] = (subjectCounter[subject] || 0) + 1;
       });
     });
     var topSubjects = Object.keys(subjectCounter).sort(function (a, b) { return subjectCounter[b] - subjectCounter[a]; }).slice(0, 6);
