@@ -995,6 +995,16 @@ export function initLegacyRuntime() {
     // Ctrl/Cmd+Enter siempre confirma la página activa.
     if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') { event.preventDefault(); confirmActivePage(); return; }
 
+    // Si hay un modal abierto, Enter confirma su acción principal (la última: Guardar/
+    // Crear/Confirmar/Eliminar/Cerrar). Se omite dentro de <textarea> para permitir saltos.
+    var modalOpen = document.getElementById('modal-overlay');
+    if (event.key === 'Enter' && modalOpen && modalOpen.classList.contains('open')) {
+      var modalActs = window._modalActions || [];
+      var inTextarea = (event.target && event.target.tagName || '').toLowerCase() === 'textarea';
+      if (modalActs.length && !inTextarea) { event.preventDefault(); window._modalAction(modalActs.length - 1); }
+      return;
+    }
+
     var isGradeCell = event.target && event.target.classList && event.target.classList.contains('grade-input');
 
     if (isGradeCell) {

@@ -26,6 +26,12 @@ export function registerDashboard(rt) {
       document.getElementById('dash-banner').innerHTML = '<div style="padding:30px;text-align:center;color:var(--gray-500);font-size:.9rem">Seleccione un PAO desde MIS PAOs para comenzar.</div>';
       document.getElementById('dash-stats').innerHTML = '';
       document.getElementById('dash-student-body').innerHTML = '';
+      // Sin PAO activo: dejar también gráficos y tarjetas en blanco (no datos del PAO anterior).
+      if (chartDistribution) { chartDistribution.destroy(); chartDistribution = null; }
+      if (chartStudents) { chartStudents.destroy(); chartStudents = null; }
+      if (chartPie) { chartPie.destroy(); chartPie = null; }
+      ['dash-comp-progress', 'dash-recent-activity', 'dash-ra-summary'].forEach(function (id) { var el = document.getElementById(id); if (el) el.innerHTML = ''; });
+      var pieLbl = document.getElementById('dash-pie-label'); if (pieLbl) pieLbl.textContent = '';
       return;
     }
     var config = rt.STATE.courseConfig;
