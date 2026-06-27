@@ -224,9 +224,12 @@ export function registerAuth(rt) {
         if (devResult) { await completeLogin(buildUserFromOasis(email, devResult)); return; }
       }
       // 3) Login contra la base de datos (docentes creados por el coordinador, otra PC).
+      //    Solo la VALIDACIÓN va dentro del try; completeLogin() se ejecuta fuera para que
+      //    sus errores (p. ej. "sesión activa en otro dispositivo") NO se disfracen del
+      //    mensaje transitorio de Neon.
+      var dbUser = null;
       try {
-        var dbUser = await oasis.loginDb(email, pass);
-        if (dbUser && !dbUser.disabled) { await completeLogin(dbUser); return; }
+        dbUser = await oasis.loginDb(email, pass);
       } catch (dbErr) {
         var isCoord = email.toLowerCase() === COORDINADOR.email;
         var wrongCreds = dbErr && dbErr.status >= 400 && dbErr.status < 500; // 401/400 en Neon
@@ -244,6 +247,8 @@ export function registerAuth(rt) {
         }
         /* docente con error leve: probamos OASIS */
       }
+      // Validación OK -> completar sesión FUERA del try (sus errores se reportan tal cual).
+      if (dbUser && !dbUser.disabled) { await completeLogin(dbUser); return; }
       // 4) Autenticación real contra OASIS.
       var result = await oasis.login(email, pass);
       // OASIS sin credenciales de servicio devuelve un usuario MOCK ("MODO DEV /

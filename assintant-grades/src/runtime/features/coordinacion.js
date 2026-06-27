@@ -13,6 +13,11 @@ import { escapeHtml, jsStringArg, normalizeEmail, normalizeDocId } from "../lib/
 export function registerCoordinacion(rt) {
   var chartCoordDocentes = null;
   var chartCoordConfigs = null;
+  var expandedCoordChart = null;
+  // Últimos datos calculados, para reconstruir el gráfico en grande al ampliar.
+  var lastCoordDoc = { labels: ['Sin datos'], datasets: [{ label: 'Sin datos', data: [0], backgroundColor: '#cbd5e1' }] };
+  var lastCoordCfg = { labels: ['Sin datos'], data: [0] };
+  var EXPAND_ICO = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>';
 
   function renderCoordinacion(section) {
     var target = document.getElementById('coord-content');
@@ -76,7 +81,7 @@ export function registerCoordinacion(rt) {
     target.innerHTML =
       '<div class="coord-layout">' +
       '<div class="stat-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:0"><div class="stat-card"><div class="stat-label">Configuraciones activas</div><div class="stat-val" style="color:var(--gray-800)">' + totalConfigs + '</div><div class="stat-sub">Histórico guardado</div></div><div class="stat-card"><div class="stat-label">Estudiantes monitoreados</div><div class="stat-val" style="color:var(--green)">' + totalStudents + '</div><div class="stat-sub">Suma de todas las configuraciones</div></div><div class="stat-card"><div class="stat-label">Avance promedio</div><div class="stat-val" style="color:var(--amber)">' + avgCompletion + '%</div><div class="stat-sub">Carga global de notas</div></div></div>' +
-      ((showOverview || showDocentes) ? '<div class="coord-chart-grid"><div class="card"><div class="card-header"><div class="card-title">Aporte por asignatura a cada RAC</div></div><div class="card-body"><canvas id="coord-chart-docentes" height="200"></canvas></div></div><div class="card"><div class="card-header"><div class="card-title">Top asignaturas que más aportan RAC</div></div><div class="card-body"><canvas id="coord-chart-configs" height="200"></canvas></div></div></div>' : '') +
+      ((showOverview || showDocentes) ? '<div class="coord-chart-grid"><div class="card chart-card" onclick="window.expandCoordChart(\'docentes\')" title="Click para ampliar"><span class="chart-expand-ico">' + EXPAND_ICO + '</span><div class="card-header"><div class="card-title">Aporte por asignatura a cada RAC</div></div><div class="card-body"><canvas id="coord-chart-docentes" height="200"></canvas></div></div><div class="card chart-card" onclick="window.expandCoordChart(\'configs\')" title="Click para ampliar"><span class="chart-expand-ico">' + EXPAND_ICO + '</span><div class="card-header"><div class="card-title">Top asignaturas que más aportan RAC</div></div><div class="card-body"><canvas id="coord-chart-configs" height="200"></canvas></div></div></div>' : '') +
       (showDocentes ? '<div class="card" style="margin-bottom:16px"><div class="card-header"><div class="card-title">Monitoreo docente</div></div><div class="card-body"><table class="data"><thead><tr><th>Docente</th><th>Asignaturas</th><th>Avance</th></tr></thead><tbody>' + (docenteRows || '<tr><td colspan="3">Sin datos</td></tr>') + '</tbody></table></div></div>' : '') +
       (showAsignaturas ? '<div class="card"><div class="card-header"><div class="card-title">Docentes y sus asignaturas</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-success btn-sm" onclick="coordImportDocentes()">⬇ Importar de OASIS</button><button class="btn btn-primary btn-sm" onclick="coordAddDocente()">+ Docente</button></div></div><div class="card-body"><p style="font-size:.78rem;color:var(--gray-500);margin-bottom:6px">Importa docentes con sus cargas (materia · nivel · paralelo) desde OASIS y asígnales una contraseña. Cada docente solo verá y calificará sus propias asignaturas.</p><div id="coord-docentes-list"></div></div></div>' : '') +
       (showAsignaturas ? '<div class="card"><div class="card-header"><div class="card-title">Asignar una asignatura manualmente</div></div><div class="card-body"><div class="form-grid"><div class="form-group"><label class="form-label">Docente</label><select class="form-select" id="coord-doc-email"><option value="">Seleccione docente</option>' + docenteOptions + '</select></div><div class="form-group"><label class="form-label">Carrera</label><select class="form-select" id="coord-career-assignment" onchange="coordLoadSubjectsAssignment()"><option value="">Seleccione carrera</option>' + careerOptions + '</select></div></div><div class="form-grid"><div class="form-group"><label class="form-label">PAO</label><select class="form-select" id="coord-pao-assignment"><option value="">Seleccione PAO</option></select></div><div class="form-group"><label class="form-label">Asignatura</label><select class="form-select" id="coord-subject-assignment"><option value="">Seleccione asignatura</option></select></div></div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-primary btn-sm" onclick="coordCreateAssignment()">Asignar asignatura</button><button class="btn btn-ghost btn-sm" onclick="coordAddAsignatura()">+ Crear asignatura en malla</button></div></div></div>' : '') +
@@ -137,6 +142,12 @@ export function registerCoordinacion(rt) {
     }).filter(function (dataset) {
       return dataset.data.some(function (v) { return v > 0; });
     });
+    lastCoordDoc = {
+      labels: topSubjects.length ? topSubjects.slice() : ['Sin datos'],
+      datasets: topSubjects.length
+        ? racDatasets.map(function (d) { return { label: d.label, data: d.data.slice(), backgroundColor: d.backgroundColor, borderRadius: d.borderRadius }; })
+        : [{ label: 'Sin datos', data: [0], backgroundColor: '#cbd5e1' }]
+    };
     var ctxDoc = document.getElementById('coord-chart-docentes');
     if (ctxDoc) {
       if (chartCoordDocentes) chartCoordDocentes.destroy();
@@ -151,6 +162,10 @@ export function registerCoordinacion(rt) {
       });
     }
     var overallTopSubjects = Object.keys(subjectCounter).sort(function (a, b) { return subjectCounter[b] - subjectCounter[a]; }).slice(0, 7);
+    lastCoordCfg = {
+      labels: overallTopSubjects.length ? overallTopSubjects.slice() : ['Sin datos'],
+      data: overallTopSubjects.length ? overallTopSubjects.map(function (s) { return subjectCounter[s]; }) : [0]
+    };
     var ctxCfg = document.getElementById('coord-chart-configs');
     if (ctxCfg) {
       if (chartCoordConfigs) chartCoordConfigs.destroy();
@@ -174,6 +189,36 @@ export function registerCoordinacion(rt) {
       });
     }
   }
+  // Configuración del gráfico de Coordinación en versión GRANDE (modal).
+  function buildCoordBigConfig(key) {
+    if (key === 'docentes') {
+      return {
+        type: 'bar',
+        data: { labels: lastCoordDoc.labels, datasets: lastCoordDoc.datasets.map(function (d) { return { label: d.label, data: d.data.slice(), backgroundColor: d.backgroundColor, borderRadius: d.borderRadius }; }) },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } }, scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true, ticks: { precision: 0 } } } }
+      };
+    }
+    return {
+      type: 'bar',
+      data: { labels: lastCoordCfg.labels, datasets: [{ label: 'Total de RAAU vinculados a RAC', data: lastCoordCfg.data.slice(), backgroundColor: '#22c55e', borderRadius: 8 }] },
+      options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true, ticks: { precision: 0 } } } }
+    };
+  }
+
+  // Amplía un gráfico del Panel de Coordinación en el modal para verlo mejor.
+  function expandCoordChart(key) {
+    if (typeof window.Chart === 'undefined') return;
+    var titles = { docentes: 'Aporte por asignatura a cada RAC', configs: 'Top asignaturas que más aportan RAC' };
+    rt.fns.openModal(
+      titles[key] || 'Gráfico',
+      '<div class="chart-modal-body"><canvas id="coord-chart-expanded"></canvas></div>',
+      [{ cls: 'btn-secondary', label: 'Cerrar', action: 'close' }]
+    );
+    if (expandedCoordChart) { expandedCoordChart.destroy(); expandedCoordChart = null; }
+    var ctx = document.getElementById('coord-chart-expanded');
+    if (ctx) expandedCoordChart = new window.Chart(ctx, buildCoordBigConfig(key));
+  }
+
   function coordLoadSubjects() {
     var career = document.getElementById('coord-career').value;
     var subject = document.getElementById('coord-subject');
@@ -869,7 +914,7 @@ export function registerCoordinacion(rt) {
   function coordGoConfig() { rt.fns.navigate('configuracion'); }
 
   Object.assign(rt.fns, {
-    renderCoordinacion, verHorario,
+    renderCoordinacion, verHorario, expandCoordChart,
     coordSetDocentePassword, coordLoadSubjects, coordEditMapping, coordAddMapRow, coordSaveMapping,
     coordOpenConfig, coordCreateConfig, coordGoConfig, coordLoadSubjectsAssignment, coordCreateAssignment,
     coordAddDocente, coordImportDocentes, coordOmitDocente, coordRestoreDocente, coordVerHorario,
