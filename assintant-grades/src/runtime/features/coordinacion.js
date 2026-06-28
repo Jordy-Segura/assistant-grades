@@ -40,7 +40,19 @@ export function registerCoordinacion(rt) {
     if (titleEl) titleEl.textContent = selected[0];
     if (subEl) subEl.textContent = selected[1];
     var totalConfigs = rt.STATE.savedConfigs.length;
-    var totalStudents = Object.keys(rt.STATE.studentsByConfig || {}).reduce(function (sum, key) { return sum + (rt.STATE.studentsByConfig[key] || []).length; }, 0);
+    // Estudiantes monitoreados POR MATERIA: no duplicar los ciclos (MEDIO/FIN) de la
+    // misma asignatura+PAO, que comparten los mismos estudiantes. Se cuenta una vez por
+    // grupo (carrera+asignatura+PAO, normalizado), tomando el máximo de estudiantes.
+    var studByGroup = {};
+    (rt.STATE.savedConfigs || []).forEach(function (cfg) {
+      var cc = cfg.courseConfig || {};
+      var k = [cc.carrera, cc.asignatura, cc.pao].map(function (x) {
+        return String(x == null ? '' : x).normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toUpperCase();
+      }).join('||');
+      var n = (rt.STATE.studentsByConfig[cfg.id] || []).length;
+      if (n > (studByGroup[k] || 0)) studByGroup[k] = n;
+    });
+    var totalStudents = Object.keys(studByGroup).reduce(function (sum, k) { return sum + studByGroup[k]; }, 0);
     var completion = rt.STATE.savedConfigs.map(function (cfg) {
       var sid = cfg.id;
       var students = (rt.STATE.studentsByConfig[sid] || []);
@@ -89,7 +101,7 @@ export function registerCoordinacion(rt) {
       (showOverview ? '<div class="coord-chart-grid"><div class="card chart-card" onclick="window.expandCoordChart(\'docentes\')" title="Click para ampliar"><span class="chart-expand-ico">' + EXPAND_ICO + '</span><div class="card-header"><div class="card-title">Aporte por asignatura a cada RAC</div></div><div class="card-body"><canvas id="coord-chart-docentes" height="200"></canvas></div></div><div class="card chart-card" onclick="window.expandCoordChart(\'configs\')" title="Click para ampliar"><span class="chart-expand-ico">' + EXPAND_ICO + '</span><div class="card-header"><div class="card-title">Top asignaturas que más aportan RAC</div></div><div class="card-body"><canvas id="coord-chart-configs" height="200"></canvas></div></div></div>' : '') +
       (showDocentes ? '<div class="coord-chart-grid"><div class="card chart-card" onclick="window.expandCoordChart(\'docAvance\')" title="Click para ampliar"><span class="chart-expand-ico">' + EXPAND_ICO + '</span><div class="card-header"><div class="card-title">Avance de calificación por docente</div></div><div class="card-body"><canvas id="coord-chart-doc-avance" height="200"></canvas></div></div><div class="card chart-card" onclick="window.expandCoordChart(\'docCarga\')" title="Click para ampliar"><span class="chart-expand-ico">' + EXPAND_ICO + '</span><div class="card-header"><div class="card-title">Carga de asignaturas por docente</div></div><div class="card-body"><canvas id="coord-chart-doc-carga" height="200"></canvas></div></div></div>' : '') +
       (showDocentes ? '<div class="card" style="margin-bottom:16px"><div class="card-header"><div class="card-title">Monitoreo docente</div></div><div class="card-body"><table class="data"><thead><tr><th>Docente</th><th>Asignaturas</th><th>Avance</th></tr></thead><tbody>' + (docenteRows || '<tr><td colspan="3">Sin datos</td></tr>') + '</tbody></table></div></div>' : '') +
-      (showAsignaturas ? '<div class="card"><div class="card-header"><div class="card-title">Docentes y sus asignaturas</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-success btn-sm" onclick="coordImportDocentes()">⬇ Importar de OASIS</button><button class="btn btn-primary btn-sm" onclick="coordAddDocente()">+ Docente</button></div></div><div class="card-body"><p style="font-size:.78rem;color:var(--gray-500);margin-bottom:6px">Importa docentes con sus cargas (materia · nivel · paralelo) desde OASIS y asígnales una contraseña. Cada docente solo verá y calificará sus propias asignaturas.</p><div id="coord-docentes-list"></div></div></div>' : '') +
+      (showAsignaturas ? '<div class="card"><div class="card-header"><div class="card-title">Docentes y sus asignaturas</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-success btn-sm" onclick="coordImportDocentes()">⬇ Importar de OASIS</button><button class="btn btn-edit btn-sm" onclick="coordSetAllPasswords()">🔑 Clave a todos</button><button class="btn btn-primary btn-sm" onclick="coordAddDocente()">+ Docente</button></div></div><div class="card-body"><p style="font-size:.78rem;color:var(--gray-500);margin-bottom:6px">Importa docentes con sus cargas (materia · nivel · paralelo) desde OASIS. Por defecto cada docente ingresa con su <strong>cédula</strong> y la cambia al primer ingreso; o usa "Clave a todos" para fijar una. Cada docente solo ve y califica sus propias asignaturas.</p><div id="coord-docentes-list"></div></div></div>' : '') +
       (showAsignaturas ? '<div class="card"><div class="card-header"><div class="card-title">Asignar una asignatura manualmente</div></div><div class="card-body"><div class="form-grid"><div class="form-group"><label class="form-label">Docente</label><select class="form-select" id="coord-doc-email"><option value="">Seleccione docente</option>' + docenteOptions + '</select></div><div class="form-group"><label class="form-label">Carrera</label><select class="form-select" id="coord-career-assignment" onchange="coordLoadSubjectsAssignment()"><option value="">Seleccione carrera</option>' + careerOptions + '</select></div></div><div class="form-grid"><div class="form-group"><label class="form-label">PAO</label><select class="form-select" id="coord-pao-assignment"><option value="">Seleccione PAO</option></select></div><div class="form-group"><label class="form-label">Asignatura</label><select class="form-select" id="coord-subject-assignment"><option value="">Seleccione asignatura</option></select></div></div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-primary btn-sm" onclick="coordCreateAssignment()">Asignar asignatura</button><button class="btn btn-ghost btn-sm" onclick="coordAddAsignatura()">+ Crear asignatura en malla</button></div></div></div>' : '') +
       (showAsignaturas ? '<div class="card"><div class="card-header"><div class="card-title">Configuraciones guardadas (todas)</div><button class="btn btn-primary btn-sm" onclick="coordCreateConfig()">Nueva configuración</button></div><div class="card-body" style="overflow-x:auto"><table class="data"><thead><tr><th>Asignatura</th><th>Docente</th><th>PAO</th><th>Ciclo</th><th>Progreso</th><th></th></tr></thead><tbody>' + (cfgRows || '<tr><td colspan="6" style="text-align:center;color:var(--gray-500);padding:16px">Sin configuraciones guardadas</td></tr>') + '</tbody></table></div></div>' : '') +
       (showRAC ? '<div class="card"><div class="card-header"><div class="card-title">Gestión de RAC</div></div><div class="card-body"><div class="form-grid"><div class="form-group"><label class="form-label">Carrera</label><select class="form-select" id="coord-career-rac" onchange="coordRenderRACList()"><option value="">Seleccione carrera</option>' + careerOptions + '</select></div><div class="form-group" style="display:flex;align-items:flex-end"><button class="btn btn-edit btn-sm" onclick="coordManualRAC()">Agregar RAC manual</button></div></div><div id="coord-rac-list" style="margin-top:10px;font-size:.8rem;color:var(--gray-600)">Seleccione carrera para listar RAC.</div></div></div>' : '') +
@@ -532,6 +544,8 @@ export function registerCoordinacion(rt) {
     target.innerHTML = '<div style="font-size:.78rem;font-weight:700;color:var(--gray-800);margin:8px 0">Docentes registrados (' + docentes.length + ')</div>' +
       (docentes.map(function (d) {
         var asigs = (rt.STATE.teacherAssignments || []).filter(function (a) { return a.docenteEmail === d.email; });
+        // La cédula del coordinador no viene en su cuenta, pero sí en sus cargas OASIS.
+        var ced = d.cedula || (asigs[0] && asigs[0].cedula) || '';
         var asigHtml = asigs.length
           ? asigs.map(function (a) { return '<span class="tag-pao" style="background:var(--blue);margin:2px 4px 2px 0;display:inline-block">' + a.asignatura + ' · N' + a.pao + ' P' + a.paralelo + '</span>'; }).join('')
           : '<span style="font-size:.7rem;color:var(--gray-400)">Sin asignaturas</span>';
@@ -547,7 +561,7 @@ export function registerCoordinacion(rt) {
         var omitButton = esCoord ? '' : '<button class="btn btn-danger btn-sm" onclick="coordOmitDocente(' + jsStringArg(d.email) + ')">Omitir</button>';
         return '<div class="item-row" style="align-items:flex-start;flex-wrap:wrap">' +
           '<div style="font-size:.8rem;flex:1;min-width:220px"><strong>' + d.name + '</strong> ' + rolTag + claveBadge +
-          '<div style="font-size:.7rem;color:var(--gray-500)">' + d.email + (d.cedula ? ' · ' + d.cedula : '') + '</div>' +
+          '<div style="font-size:.7rem;color:var(--gray-500)">' + d.email + (ced ? ' · ' + ced : '') + '</div>' +
           '<div style="margin-top:6px">' + asigHtml + '</div></div>' +
           '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
           omitButton +
@@ -773,6 +787,43 @@ export function registerCoordinacion(rt) {
     });
   }
 
+  // Asigna UNA clave a TODOS los docentes de una vez (opción B), o la cédula de cada uno
+  // si se dejan los campos vacíos. Evita asignarlas una por una.
+  function coordSetAllPasswords() {
+    var docs = rt.fns.getDocentes();
+    if (!docs.length) { rt.fns.showToast('No hay docentes registrados.', 'error'); return; }
+    rt.fns.openModal('Asignar clave a todos los docentes',
+      '<p style="color:var(--gray-600);font-size:.8rem;margin-bottom:10px">La clave se asignará a <strong>' + docs.length + ' docente(s)</strong> de una sola vez (reemplaza la actual). Cada docente podrá cambiarla después.</p>' +
+      '<div class="form-group"><label class="form-label">Nueva clave para todos</label><input class="form-input" id="coord-all-pass" type="password" autocomplete="new-password"></div>' +
+      '<div class="form-group"><label class="form-label">Confirmar clave</label><input class="form-input" id="coord-all-pass-confirm" type="password" autocomplete="new-password"></div>' +
+      rt.fns.passwordHelpHtml() +
+      '<div style="font-size:.72rem;color:var(--gray-500);margin-top:6px">Deje ambos campos vacíos para usar la <strong>cédula</strong> de cada docente (la cambiará en su primer ingreso).</div>',
+      [{ label: 'Cancelar', cls: 'btn-ghost', action: 'close' }, { label: 'Asignar a todos', cls: 'btn-success', action: function () {
+        var pass = ((document.getElementById('coord-all-pass') || {}).value || '').trim();
+        var confirm = ((document.getElementById('coord-all-pass-confirm') || {}).value || '').trim();
+        var useCedula = !pass && !confirm;
+        if (!useCedula) {
+          var validation = rt.fns.validatePasswordForm(pass, confirm);
+          if (validation) { rt.fns.showToast(validation, 'error'); return; }
+        }
+        var n = 0, sinCedula = 0;
+        docs.forEach(function (d) {
+          if (useCedula) {
+            var ced = String(d.cedula || '').replace(/[^0-9kK]/g, '').toLowerCase();
+            if (!ced) { sinCedula++; return; }
+            d.password = ced;
+          } else {
+            d.password = pass;
+          }
+          n++;
+        });
+        rt.fns.save();
+        rt.fns.closeModal();
+        renderCoordinacion('asignaturas');
+        rt.fns.showToast('Clave asignada a ' + n + ' docente(s)' + (sinCedula ? ' · ' + sinCedula + ' sin cédula omitidos' : ''), 'success');
+      } }]);
+  }
+
   function coordManualRAC() {
     var careerEl = document.getElementById('coord-career-assignment') || document.getElementById('coord-career-rac');
     var career = careerEl ? careerEl.value : '';
@@ -985,7 +1036,7 @@ export function registerCoordinacion(rt) {
     renderCoordinacion, verHorario, expandCoordChart,
     coordSetDocentePassword, coordLoadSubjects, coordEditMapping, coordAddMapRow, coordSaveMapping,
     coordOpenConfig, coordCreateConfig, coordGoConfig, coordLoadSubjectsAssignment, coordCreateAssignment,
-    coordAddDocente, coordImportDocentes, coordOmitDocente, coordRestoreDocente, coordVerHorario,
+    coordAddDocente, coordImportDocentes, coordOmitDocente, coordRestoreDocente, coordVerHorario, coordSetAllPasswords,
     coordAddAsignatura, coordManualRAC, coordRenderRACList, coordEditRAC, coordDeleteRAC,
     coordManualRAAU, coordRenderRAAUList, coordEditRAAUItem, coordDeleteRAAUItem, coordTriggerExcel, coordImportExcel
   });

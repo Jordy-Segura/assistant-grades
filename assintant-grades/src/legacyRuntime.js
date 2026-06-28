@@ -916,6 +916,7 @@ export function initLegacyRuntime() {
   window.coordLoadSubjectsAssignment = rt.fns.coordLoadSubjectsAssignment;
   window.coordCreateAssignment = rt.fns.coordCreateAssignment;
   window.coordAddDocente = rt.fns.coordAddDocente;
+  window.coordSetAllPasswords = rt.fns.coordSetAllPasswords;
   window.coordImportDocentes = rt.fns.coordImportDocentes;
   window.coordOmitDocente = rt.fns.coordOmitDocente;
   window.coordRestoreDocente = rt.fns.coordRestoreDocente;
