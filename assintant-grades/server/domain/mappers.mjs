@@ -65,6 +65,21 @@ export function resolverCorreo(rawEmail, cedula, nombres, apellidos) {
   return correoInstitucional(nombres, apellidos);
 }
 
+// Correo del DOCENTE: siempre el INSTITUCIONAL. Usa el de OASIS SOLO si es
+// @espoch.edu.ec y parece suyo (descarta personales tipo gmail/hotmail y placeholders);
+// en cualquier otro caso deriva el institucional (primernombre.primerapellido@espoch.edu.ec).
+export function resolverCorreoDocente(rawEmail, cedula, nombres, apellidos) {
+  const digits = soloDigitos(cedula);
+  if (CORREOS_CONOCIDOS[digits]) return CORREOS_CONOCIDOS[digits];
+  const real = limpiarEmail(rawEmail);
+  if (real && /@espoch\.edu\.ec$/i.test(real) && correoCoincideConNombre(real, nombres, apellidos)) {
+    return real.toLowerCase();
+  }
+  // Nunca devolver un correo personal: institucional derivado, o un @espoch aunque no
+  // calce el nombre, o "" (el cliente completará cédula@espoch.edu.ec).
+  return correoInstitucional(nombres, apellidos) || (real && /@espoch\.edu\.ec$/i.test(real) ? real.toLowerCase() : "");
+}
+
 // Código REAL del estudiante, nunca la cédula. Útil cuando un servicio sí lo trae.
 export function pickCodigo(obj, cedula) {
   if (!obj || typeof obj !== "object") return "";
@@ -107,7 +122,8 @@ export const mapDictado = (d) => ({
     cedula: d.Docente?.Cedula || "",
     apellidos: (d.Docente?.Apellidos || "").trim(),
     nombres: (d.Docente?.Nombres || "").trim(),
-    email: limpiarEmail(d.Docente?.Email),
+    // Correo INSTITUCIONAL (no el personal que a veces trae OASIS).
+    email: resolverCorreoDocente(d.Docente?.Email, d.Docente?.Cedula, d.Docente?.Nombres, d.Docente?.Apellidos),
   },
 });
 

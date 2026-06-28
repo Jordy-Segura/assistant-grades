@@ -453,7 +453,28 @@ export function registerCoordinacion(rt) {
       var codCarrera = (res && res.codCarrera) || '';
       var codPeriodo = (rt.STATE.oasisPeriodo && rt.STATE.oasisPeriodo.codigo) || '';
       if (!docentes.length) { setMsg('OASIS no devolvió docentes para esta carrera.', true); return; }
-      var nuevosDoc = 0, nuevasCargas = 0, actualizadas = 0, omitidos = 0;
+      var nuevosDoc = 0, nuevasCargas = 0, actualizadas = 0, omitidos = 0, migrados = 0;
+      var resolveEmail = function (d) {
+        var c = String(d.cedula || '').replace(/[^0-9kK]/g, '');
+        return (d.email && /@/.test(d.email) && !/^null$/i.test(d.email)) ? d.email.toLowerCase() : (c + '@espoch.edu.ec');
+      };
+      // Si un docente ya estaba guardado con OTRO correo (p. ej. el personal de una
+      // importación anterior), migrarlo al correo institucional que resuelve OASIS ahora,
+      // identificándolo por CÉDULA. Así re-importar CORRIGE el correo en vez de duplicar.
+      docentes.forEach(function (d) {
+        var ced = String(d.cedula || '').replace(/[^0-9kK]/g, '');
+        if (!ced) return;
+        var newEmail = resolveEmail(d);
+        var prev = (rt.STATE.docentes || []).find(function (x) { return String(x.cedula || '').replace(/[^0-9kK]/g, '') === ced; });
+        if (prev && (prev.email || '').toLowerCase() !== newEmail) {
+          var oldEmail = prev.email;
+          prev.email = newEmail;
+          prev.name = ((d.nombres || '') + ' ' + (d.apellidos || '')).trim() || prev.name;
+          (rt.STATE.teacherAssignments || []).forEach(function (a) { if (a.docenteEmail === oldEmail) a.docenteEmail = newEmail; });
+          (rt.STATE.savedConfigs || []).forEach(function (c) { if (c.ownerEmail === oldEmail) c.ownerEmail = newEmail; });
+          migrados++;
+        }
+      });
       // Clave normalizada (sin tildes/espacios extra/mayúsculas) para identificar
       // la MISMA carga aunque OASIS o el catálogo varíen acentos o capitalización.
       // Así re-importar ACTUALIZA en lugar de duplicar.
@@ -474,8 +495,7 @@ export function registerCoordinacion(rt) {
       });
       docentes.forEach(function (d) {
         var nombre = ((d.nombres || '') + ' ' + (d.apellidos || '')).trim() || d.cedula;
-        var cedNum = String(d.cedula || '').replace(/[^0-9kK]/g, '');
-        var email = (d.email && /@/.test(d.email) && !/^null$/i.test(d.email)) ? d.email.toLowerCase() : (cedNum + '@espoch.edu.ec');
+        var email = resolveEmail(d);
         if (rt.fns.isDocenteExcluded(email, d.cedula)) {
           omitidos++;
           return;
@@ -529,7 +549,7 @@ export function registerCoordinacion(rt) {
       rt.fns.closeModal();
       renderCoordinacion('asignaturas');
       if (omitidos) rt.fns.showToast(omitidos + ' docentes omitidos por lista de exclusion.', 'success');
-      rt.fns.showToast(nuevosDoc + ' docentes nuevos (clave inicial = cédula) · ' + nuevasCargas + ' cargas nuevas · ' + actualizadas + ' actualizadas', 'success');
+      rt.fns.showToast(nuevosDoc + ' docentes nuevos (clave inicial = cédula) · ' + nuevasCargas + ' cargas nuevas · ' + actualizadas + ' actualizadas' + (migrados ? ' · ' + migrados + ' correos corregidos a institucional' : ''), 'success');
     } catch (err) {
       setMsg((err && err.offline) ? 'OASIS/BFF no disponible.' : ((err && err.message) || 'Error al importar docentes.'), true);
     }
