@@ -127,6 +127,57 @@ export function registerAuth(rt) {
     return '<div style="font-size:.72rem;color:var(--gray-500);margin-top:4px">Minimo 8 caracteres, con letras y numeros, sin espacios.</div>';
   }
 
+  // --- Clave por defecto = cédula + cambio obligatorio en el primer ingreso ---
+  var FORCE_PWD_KEY = 'espoch_force_pwd';
+  function cedulaDigits(v) { return String(v == null ? '' : v).replace(/[^0-9kK]/g, '').toLowerCase(); } // == cleanDocId del servidor
+  // ¿Ingresó con su contraseña por defecto (la cédula)? => debe cambiarla.
+  function isDefaultCedulaLogin(pass, user) {
+    var ced = cedulaDigits(user && user.cedula);
+    return Boolean(ced) && cedulaDigits(pass) === ced;
+  }
+
+  // Modal OBLIGATORIO (no se puede cerrar) para que el docente cree su nueva contraseña.
+  function forcePasswordChange(user) {
+    if (!user || !user.email) return;
+    try { localStorage.setItem(FORCE_PWD_KEY, user.email); } catch { /* ignore */ }
+    window.__lockModal = true;
+    var body = '<p style="font-size:.82rem;color:var(--gray-700);line-height:1.5;margin-bottom:12px">Por seguridad, su contraseña inicial es su <strong>cédula</strong>. Cree una nueva contraseña para continuar.</p>' +
+      '<div class="form-group"><label class="form-label">Nueva contraseña</label><input class="form-input" id="fpc-new" type="password" autocomplete="new-password"></div>' +
+      '<div class="form-group"><label class="form-label">Confirmar contraseña</label><input class="form-input" id="fpc-confirm" type="password" autocomplete="new-password"></div>' +
+      passwordHelpHtml() +
+      '<div id="fpc-msg" style="color:var(--red);font-size:.78rem;margin-top:8px"></div>';
+    rt.fns.openModal('Cree su nueva contraseña', body,
+      [
+        // Escape seguro: si no puede cambiarla ahora (p. ej. servidor caído), puede salir;
+        // no entra a la app hasta cambiarla, así que el requisito sigue vigente.
+        { label: 'Salir', cls: 'btn-ghost', action: function () { window.__lockModal = false; rt.fns.closeModal(); doLogout(); } },
+        { label: 'Guardar contraseña', cls: 'btn-success', action: function () { submitForcedPassword(user); } }
+      ]);
+    setTimeout(function () { var el = document.getElementById('fpc-new'); if (el) el.focus(); }, 60);
+  }
+
+  async function submitForcedPassword(user) {
+    var nv = (document.getElementById('fpc-new') || {}).value || '';
+    var cf = (document.getElementById('fpc-confirm') || {}).value || '';
+    var msg = document.getElementById('fpc-msg');
+    var err = validatePasswordForm(nv, cf);
+    if (!err && user.cedula && cedulaDigits(nv) === cedulaDigits(user.cedula)) err = 'La nueva contraseña no puede ser su cédula.';
+    if (err) { if (msg) msg.textContent = err; return; }
+    if (msg) { msg.style.color = 'var(--gray-500)'; msg.textContent = 'Guardando...'; }
+    try {
+      await oasis.updateDbPassword({ email: user.email, currentPassword: cedulaDigits(user.cedula), newPassword: nv });
+    } catch (e) {
+      if (msg) { msg.style.color = 'var(--red)'; msg.textContent = (e && e.message) || 'No se pudo actualizar. Intente de nuevo.'; }
+      return;
+    }
+    var local = rt.fns.findUserByEmail(user.email);
+    if (local && typeof local.password !== 'undefined') { local.password = nv; rt.fns.save(); }
+    try { localStorage.removeItem(FORCE_PWD_KEY); } catch { /* ignore */ }
+    window.__lockModal = false;
+    rt.fns.closeModal();
+    rt.fns.showToast('Contraseña actualizada. ¡Bienvenido!', 'success');
+  }
+
   function deriveRole(roles) {
     var names = (roles || []).map(function (r) { return (r.nombreRol || '').toUpperCase(); });
     if (names.some(function (n) { return n.indexOf('COORDINADOR') !== -1; })) return 'coordinador';
@@ -209,6 +260,7 @@ export function registerAuth(rt) {
       setAuthLoading(true);
       try {
         await completeLogin(local);
+        if (isDefaultCedulaLogin(pass, local)) forcePasswordChange(local);
       } catch (err) {
         if (msgEl) msgEl.textContent = err.message || 'No se pudo iniciar sesion.';
       } finally {
@@ -248,7 +300,11 @@ export function registerAuth(rt) {
         /* docente con error leve: probamos OASIS */
       }
       // Validación OK -> completar sesión FUERA del try (sus errores se reportan tal cual).
-      if (dbUser && !dbUser.disabled) { await completeLogin(dbUser); return; }
+      if (dbUser && !dbUser.disabled) {
+        await completeLogin(dbUser);
+        if (isDefaultCedulaLogin(pass, dbUser)) forcePasswordChange(dbUser);
+        return;
+      }
       // 4) Autenticación real contra OASIS.
       var result = await oasis.login(email, pass);
       // OASIS sin credenciales de servicio devuelve un usuario MOCK ("MODO DEV /
@@ -310,6 +366,9 @@ export function registerAuth(rt) {
       rt.fns.renderDashboard();
       autoLoadPeriodo();
       rt.fns.hydrateFromDb();
+      var mustChange = false;
+      try { mustChange = localStorage.getItem(FORCE_PWD_KEY) === user.email; } catch { mustChange = false; }
+      if (mustChange) forcePasswordChange(user);
     } catch (err) {
       stopLoginSessionHeartbeat();
       rt.STATE.currentUser = null;

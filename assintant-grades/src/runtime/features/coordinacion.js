@@ -419,7 +419,7 @@ export function registerCoordinacion(rt) {
   function coordImportDocentes() {
     var careerOptions = Object.keys(rt.DB_ESPOCH).map(function (c) { return '<option value="' + c + '">' + c + '</option>'; }).join('');
     rt.fns.openModal('Importar docentes desde OASIS',
-      '<p style="color:var(--gray-600);font-size:.8rem;margin-bottom:12px">Trae los docentes que dictan en la carrera con sus <strong>cargas horarias</strong> (materia · nivel · paralelo) desde OASIS y les crea un perfil de acceso.</p>' +
+      '<p style="color:var(--gray-600);font-size:.8rem;margin-bottom:12px">Trae los docentes que dictan en la carrera con sus <strong>cargas horarias</strong> (materia · nivel · paralelo) desde OASIS y les crea un perfil de acceso. Cada docente ingresa con su <strong>cédula</strong> como contraseña inicial y deberá cambiarla en el primer ingreso (usted no asigna claves una por una).</p>' +
       '<div class="form-group"><label class="form-label">Carrera</label><select class="form-select" id="coord-import-career"><option value="">Seleccione carrera</option>' + careerOptions + '</select></div>' +
       '<div id="coord-import-msg" style="font-size:.78rem;color:var(--gray-500);min-height:18px"></div>',
       [
@@ -470,7 +470,8 @@ export function registerCoordinacion(rt) {
         }
         var existente = rt.fns.findUserByEmail(email);
         if (!existente) {
-          // Sin contraseña: el coordinador debe asignarla antes de que el docente ingrese.
+          // Clave por defecto = su CÉDULA (la asigna el servidor al guardar; cambio
+          // obligatorio en el primer ingreso). El coordinador no tiene que asignar nada.
           rt.STATE.docentes.push({ email: email, password: '', role: 'docente', name: nombre, cedula: d.cedula });
           nuevosDoc++;
         }
@@ -516,7 +517,7 @@ export function registerCoordinacion(rt) {
       rt.fns.closeModal();
       renderCoordinacion('asignaturas');
       if (omitidos) rt.fns.showToast(omitidos + ' docentes omitidos por lista de exclusion.', 'success');
-      rt.fns.showToast(nuevosDoc + ' docentes nuevos · ' + nuevasCargas + ' cargas nuevas · ' + actualizadas + ' actualizadas', 'success');
+      rt.fns.showToast(nuevosDoc + ' docentes nuevos (clave inicial = cédula) · ' + nuevasCargas + ' cargas nuevas · ' + actualizadas + ' actualizadas', 'success');
     } catch (err) {
       setMsg((err && err.offline) ? 'OASIS/BFF no disponible.' : ((err && err.message) || 'Error al importar docentes.'), true);
     }

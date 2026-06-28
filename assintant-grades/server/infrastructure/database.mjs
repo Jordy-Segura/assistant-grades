@@ -476,12 +476,18 @@ export class Database {
           [email, nombre, d.cedula || "", rol, hashPassword(d.password), d]
         );
       } else {
+        // Sin contraseña explícita: la clave POR DEFECTO del docente es su CÉDULA (cambio
+        // obligatorio en el primer ingreso). COALESCE: solo se aplica si aún NO tiene clave;
+        // nunca sobrescribe una que el docente ya haya cambiado.
+        const cedDigits = cleanDocId(d.cedula || "");
+        const defaultHash = cedDigits ? hashPassword(cedDigits) : null;
         await client.query(
-          `INSERT INTO app_docentes_sistema(email,nombres,cedula,rol,data,activo)
-           VALUES ($1,$2,$3,$4,$5,true)
+          `INSERT INTO app_docentes_sistema(email,nombres,cedula,rol,password_hash,data,activo)
+           VALUES ($1,$2,$3,$4,$5,$6,true)
            ON CONFLICT (email) DO UPDATE
-           SET nombres=$2,cedula=$3,rol=$4,data=$5,activo=true,updated_at=now()`,
-          [email, nombre, d.cedula || "", rol, d]
+           SET nombres=$2,cedula=$3,rol=$4,data=$6,activo=true,updated_at=now(),
+               password_hash=COALESCE(app_docentes_sistema.password_hash, EXCLUDED.password_hash)`,
+          [email, nombre, d.cedula || "", rol, defaultHash, d]
         );
       }
     }

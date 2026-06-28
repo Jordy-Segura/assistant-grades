@@ -423,6 +423,7 @@ export function initLegacyRuntime() {
   }
 
   function closeModal(e) {
+    if (window.__lockModal) return; // modal obligatorio (p. ej. cambio de clave forzado): no se puede cerrar
     if (e && e.target !== document.getElementById('modal-overlay')) return;
     var overlay = document.getElementById('modal-overlay');
     if (overlay) overlay.classList.remove('open');
