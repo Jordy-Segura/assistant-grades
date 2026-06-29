@@ -101,7 +101,7 @@ export function registerCoordinacion(rt) {
       (showOverview ? '<div class="coord-chart-grid"><div class="card chart-card" onclick="window.expandCoordChart(\'docentes\')" title="Click para ampliar"><span class="chart-expand-ico">' + EXPAND_ICO + '</span><div class="card-header"><div class="card-title">Aporte por asignatura a cada RAC</div></div><div class="card-body"><canvas id="coord-chart-docentes" height="200"></canvas></div></div><div class="card chart-card" onclick="window.expandCoordChart(\'configs\')" title="Click para ampliar"><span class="chart-expand-ico">' + EXPAND_ICO + '</span><div class="card-header"><div class="card-title">Top asignaturas que más aportan RAC</div></div><div class="card-body"><canvas id="coord-chart-configs" height="200"></canvas></div></div></div>' : '') +
       (showDocentes ? '<div class="coord-chart-grid"><div class="card chart-card" onclick="window.expandCoordChart(\'docAvance\')" title="Click para ampliar"><span class="chart-expand-ico">' + EXPAND_ICO + '</span><div class="card-header"><div class="card-title">Avance de calificación por docente</div></div><div class="card-body"><canvas id="coord-chart-doc-avance" height="200"></canvas></div></div><div class="card chart-card" onclick="window.expandCoordChart(\'docCarga\')" title="Click para ampliar"><span class="chart-expand-ico">' + EXPAND_ICO + '</span><div class="card-header"><div class="card-title">Carga de asignaturas por docente</div></div><div class="card-body"><canvas id="coord-chart-doc-carga" height="200"></canvas></div></div></div>' : '') +
       (showDocentes ? '<div class="card" style="margin-bottom:16px"><div class="card-header"><div class="card-title">Monitoreo docente</div></div><div class="card-body"><table class="data"><thead><tr><th>Docente</th><th>Asignaturas</th><th>Avance</th></tr></thead><tbody>' + (docenteRows || '<tr><td colspan="3">Sin datos</td></tr>') + '</tbody></table></div></div>' : '') +
-      (showAsignaturas ? '<div class="card"><div class="card-header"><div class="card-title">Docentes y sus asignaturas</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-success btn-sm" onclick="coordImportDocentes()">⬇ Importar de OASIS</button><button class="btn btn-edit btn-sm" onclick="coordSetAllPasswords()">🔑 Clave a todos</button><button class="btn btn-primary btn-sm" onclick="coordAddDocente()">+ Docente</button></div></div><div class="card-body"><p style="font-size:.78rem;color:var(--gray-500);margin-bottom:6px">Importa docentes con sus cargas (materia · nivel · paralelo) desde OASIS. Por defecto cada docente ingresa con su <strong>cédula</strong> y la cambia al primer ingreso; o usa "Clave a todos" para fijar una. Cada docente solo ve y califica sus propias asignaturas.</p><div id="coord-docentes-list"></div></div></div>' : '') +
+      (showAsignaturas ? '<div class="card"><div class="card-header"><div class="card-title">Docentes y sus asignaturas</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-success btn-sm" onclick="coordImportDocentes()">⬇ Importar de OASIS</button><button class="btn btn-edit btn-sm" onclick="coordSetAllPasswords()">🔑 Clave a todos</button><button class="btn btn-ghost btn-sm" onclick="coordFixDocenteEmails()">✉ Corregir correos</button><button class="btn btn-primary btn-sm" onclick="coordAddDocente()">+ Docente</button></div></div><div class="card-body"><p style="font-size:.78rem;color:var(--gray-500);margin-bottom:6px">Importa docentes con sus cargas (materia · nivel · paralelo) desde OASIS. Por defecto cada docente ingresa con su <strong>cédula</strong> y la cambia al primer ingreso; o usa "Clave a todos" para fijar una. Cada docente solo ve y califica sus propias asignaturas.</p><div id="coord-docentes-list"></div></div></div>' : '') +
       (showAsignaturas ? '<div class="card"><div class="card-header"><div class="card-title">Asignar una asignatura manualmente</div></div><div class="card-body"><div class="form-grid"><div class="form-group"><label class="form-label">Docente</label><select class="form-select" id="coord-doc-email"><option value="">Seleccione docente</option>' + docenteOptions + '</select></div><div class="form-group"><label class="form-label">Carrera</label><select class="form-select" id="coord-career-assignment" onchange="coordLoadSubjectsAssignment()"><option value="">Seleccione carrera</option>' + careerOptions + '</select></div></div><div class="form-grid"><div class="form-group"><label class="form-label">PAO</label><select class="form-select" id="coord-pao-assignment"><option value="">Seleccione PAO</option></select></div><div class="form-group"><label class="form-label">Asignatura</label><select class="form-select" id="coord-subject-assignment"><option value="">Seleccione asignatura</option></select></div></div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-primary btn-sm" onclick="coordCreateAssignment()">Asignar asignatura</button><button class="btn btn-ghost btn-sm" onclick="coordAddAsignatura()">+ Crear asignatura en malla</button></div></div></div>' : '') +
       (showAsignaturas ? '<div class="card"><div class="card-header"><div class="card-title">Configuraciones guardadas (todas)</div><button class="btn btn-primary btn-sm" onclick="coordCreateConfig()">Nueva configuración</button></div><div class="card-body" style="overflow-x:auto"><table class="data"><thead><tr><th>Asignatura</th><th>Docente</th><th>PAO</th><th>Ciclo</th><th>Progreso</th><th></th></tr></thead><tbody>' + (cfgRows || '<tr><td colspan="6" style="text-align:center;color:var(--gray-500);padding:16px">Sin configuraciones guardadas</td></tr>') + '</tbody></table></div></div>' : '') +
       (showRAC ? '<div class="card"><div class="card-header"><div class="card-title">Gestión de RAC</div></div><div class="card-body"><div class="form-grid"><div class="form-group"><label class="form-label">Carrera</label><select class="form-select" id="coord-career-rac" onchange="coordRenderRACList()"><option value="">Seleccione carrera</option>' + careerOptions + '</select></div><div class="form-group" style="display:flex;align-items:flex-end"><button class="btn btn-edit btn-sm" onclick="coordManualRAC()">Agregar RAC manual</button></div></div><div id="coord-rac-list" style="margin-top:10px;font-size:.8rem;color:var(--gray-600)">Seleccione carrera para listar RAC.</div></div></div>' : '') +
@@ -844,6 +844,37 @@ export function registerCoordinacion(rt) {
       } }]);
   }
 
+  // Cambia el correo de un docente y arrastra sus cargas y configuraciones.
+  function migrarCorreoDocente(d, oldEmail, newEmail) {
+    d.email = newEmail;
+    (rt.STATE.teacherAssignments || []).forEach(function (a) { if (a.docenteEmail === oldEmail) a.docenteEmail = newEmail; });
+    (rt.STATE.savedConfigs || []).forEach(function (c) { if (c.ownerEmail === oldEmail) c.ownerEmail = newEmail; });
+  }
+
+  // Corrige a INSTITUCIONAL los correos personales consultando la ficha de OASIS
+  // (GetDatosCompletosEstudiante por cédula). No requiere re-importar la carrera entera.
+  async function coordFixDocenteEmails() {
+    var docs = (rt.STATE.docentes || []).filter(function (d) { return d.cedula && !/@espoch\.edu\.ec$/i.test(d.email || ''); });
+    if (!docs.length) { rt.fns.showToast('Todos los docentes ya tienen correo institucional.', 'success'); return; }
+    rt.fns.showToast('Consultando OASIS para ' + docs.length + ' docente(s)…', 'success');
+    var fixed = 0;
+    for (var i = 0; i < docs.length; i++) {
+      var d = docs[i];
+      try {
+        var info = await oasis.getDatosEstudiante({ cedula: d.cedula });
+        var newEmail = (info && info.email && /@espoch\.edu\.ec$/i.test(info.email)) ? info.email.toLowerCase() : '';
+        if (newEmail && newEmail !== (d.email || '').toLowerCase()) {
+          if (info.nombres || info.apellidos) d.name = ((info.nombres || '') + ' ' + (info.apellidos || '')).trim() || d.name;
+          migrarCorreoDocente(d, d.email, newEmail);
+          fixed++;
+        }
+      } catch { /* sin ficha en OASIS: se deja igual */ }
+    }
+    rt.fns.save();
+    renderCoordinacion('asignaturas');
+    rt.fns.showToast(fixed ? (fixed + ' correo(s) corregidos a institucional.') : 'OASIS no devolvió correo institucional para esos docentes.', fixed ? 'success' : 'error');
+  }
+
   function coordManualRAC() {
     var careerEl = document.getElementById('coord-career-assignment') || document.getElementById('coord-career-rac');
     var career = careerEl ? careerEl.value : '';
@@ -1056,7 +1087,7 @@ export function registerCoordinacion(rt) {
     renderCoordinacion, verHorario, expandCoordChart,
     coordSetDocentePassword, coordLoadSubjects, coordEditMapping, coordAddMapRow, coordSaveMapping,
     coordOpenConfig, coordCreateConfig, coordGoConfig, coordLoadSubjectsAssignment, coordCreateAssignment,
-    coordAddDocente, coordImportDocentes, coordOmitDocente, coordRestoreDocente, coordVerHorario, coordSetAllPasswords,
+    coordAddDocente, coordImportDocentes, coordOmitDocente, coordRestoreDocente, coordVerHorario, coordSetAllPasswords, coordFixDocenteEmails,
     coordAddAsignatura, coordManualRAC, coordRenderRACList, coordEditRAC, coordDeleteRAC,
     coordManualRAAU, coordRenderRAAUList, coordEditRAAUItem, coordDeleteRAAUItem, coordTriggerExcel, coordImportExcel
   });
