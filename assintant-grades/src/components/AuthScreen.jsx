@@ -12,6 +12,9 @@ export default function AuthScreen() {
           <div style={{fontSize:".8rem",color:"var(--gray-500)",marginBottom:"18px"}}>Ingrese sus credenciales institucionales</div>
           <div className="form-group"><label className="form-label">Correo Institucional</label><input id="auth-email" className="form-input" placeholder="correo@espoch.edu.ec" /></div>
           <div className="form-group"><label className="form-label">Contraseña</label><input id="auth-pass" type="password" className="form-input" placeholder="••••••••" /></div>
+          <label style={{display:"flex",alignItems:"center",gap:"7px",fontSize:".82rem",color:"var(--gray-600)",margin:"2px 0 14px",cursor:"pointer",userSelect:"none"}}>
+            <input type="checkbox" id="auth-remember" defaultChecked style={{width:"15px",height:"15px",accentColor:"var(--espoch-red)",cursor:"pointer"}} /> Recuérdame
+          </label>
           <button className="btn btn-primary auth-main-btn" onClick={() => callGlobal("doLogin")}>Ingresar</button>
           <div className="auth-demo-box">
             <div className="demo-note">Ingrese con sus credenciales institucionales o con la contraseña asignada por coordinación.</div>

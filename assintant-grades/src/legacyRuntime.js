@@ -918,6 +918,7 @@ export function initLegacyRuntime() {
   window.coordAddDocente = rt.fns.coordAddDocente;
   window.coordSetAllPasswords = rt.fns.coordSetAllPasswords;
   window.coordFixDocenteEmails = rt.fns.coordFixDocenteEmails;
+  window.coordResetAll = rt.fns.coordResetAll;
   window.coordImportDocentes = rt.fns.coordImportDocentes;
   window.coordOmitDocente = rt.fns.coordOmitDocente;
   window.coordRestoreDocente = rt.fns.coordRestoreDocente;
@@ -1037,6 +1038,15 @@ export function initLegacyRuntime() {
       if (event.key === 'Enter') rt.fns.doLogin();
     });
   });
+
+  // Pre-rellenar el correo recordado y el estado de "Recuérdame".
+  try {
+    var rememberedEmail = localStorage.getItem('espoch_last_email');
+    var emailInput = document.getElementById('auth-email');
+    if (rememberedEmail && emailInput && !emailInput.value) emailInput.value = rememberedEmail;
+    var rememberInput = document.getElementById('auth-remember');
+    if (rememberInput) rememberInput.checked = localStorage.getItem('espoch_remember') !== '0';
+  } catch { /* ignore */ }
 
   window.addEventListener('beforeunload', function () {
     rt.fns.releaseLoginSession(STATE.currentUser, true);

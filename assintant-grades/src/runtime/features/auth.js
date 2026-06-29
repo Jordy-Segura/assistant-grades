@@ -254,6 +254,15 @@ export function registerAuth(rt) {
       if (msgEl) msgEl.textContent = 'Ingrese su correo institucional y contraseña.';
       return;
     }
+    // "Recuérdame": guarda la preferencia + el correo (para pre-rellenar) y marca esta
+    // sesión de navegador. Si NO está marcado, al reabrir el navegador se exige login.
+    try {
+      var rememberEl = document.getElementById('auth-remember');
+      var remember = rememberEl ? rememberEl.checked : true;
+      localStorage.setItem('espoch_remember', remember ? '1' : '0');
+      localStorage.setItem('espoch_last_email', email);
+      sessionStorage.setItem('espoch_session_alive', '1');
+    } catch { /* ignore */ }
     // 1) Cuentas locales en memoria (coordinador / docentes de esta sesión). Offline-proof.
     var local = findLocalUser(email, pass);
     if (local) {
@@ -359,6 +368,19 @@ export function registerAuth(rt) {
   async function resumeStoredSession() {
     var user = rt.STATE.currentUser;
     if (!user) return;
+    // "Recuérdame" desactivado: la sesión solo vive mientras el navegador esté abierto.
+    // Al reabrirlo (sessionStorage vacío) se cierra y se exige login. (Por defecto SÍ recuerda.)
+    var remember, sessionAlive;
+    try { remember = localStorage.getItem('espoch_remember') !== '0'; } catch { remember = true; }
+    try { sessionAlive = sessionStorage.getItem('espoch_session_alive') === '1'; } catch { sessionAlive = false; }
+    if (!remember && !sessionAlive) {
+      rt.STATE.currentUser = null;
+      rt.fns.save();
+      rt.fns.applyRoleUI();
+      rt.fns.updateSidebar();
+      return;
+    }
+    try { sessionStorage.setItem('espoch_session_alive', '1'); } catch { /* ignore */ }
     try {
       await claimLoginSession(user);
       await rt.fns.loadVectorCatalog();

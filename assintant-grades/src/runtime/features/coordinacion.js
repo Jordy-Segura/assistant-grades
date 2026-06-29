@@ -104,6 +104,7 @@ export function registerCoordinacion(rt) {
       (showAsignaturas ? '<div class="card"><div class="card-header"><div class="card-title">Docentes y sus asignaturas</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-success btn-sm" onclick="coordImportDocentes()">⬇ Importar de OASIS</button><button class="btn btn-edit btn-sm" onclick="coordSetAllPasswords()">🔑 Clave a todos</button><button class="btn btn-ghost btn-sm" onclick="coordFixDocenteEmails()">✉ Corregir correos</button><button class="btn btn-primary btn-sm" onclick="coordAddDocente()">+ Docente</button></div></div><div class="card-body"><p style="font-size:.78rem;color:var(--gray-500);margin-bottom:6px">Importa docentes con sus cargas (materia · nivel · paralelo) desde OASIS. Por defecto cada docente ingresa con su <strong>cédula</strong> y la cambia al primer ingreso; o usa "Clave a todos" para fijar una. Cada docente solo ve y califica sus propias asignaturas.</p><div id="coord-docentes-list"></div></div></div>' : '') +
       (showAsignaturas ? '<div class="card"><div class="card-header"><div class="card-title">Asignar una asignatura manualmente</div></div><div class="card-body"><div class="form-grid"><div class="form-group"><label class="form-label">Docente</label><select class="form-select" id="coord-doc-email"><option value="">Seleccione docente</option>' + docenteOptions + '</select></div><div class="form-group"><label class="form-label">Carrera</label><select class="form-select" id="coord-career-assignment" onchange="coordLoadSubjectsAssignment()"><option value="">Seleccione carrera</option>' + careerOptions + '</select></div></div><div class="form-grid"><div class="form-group"><label class="form-label">PAO</label><select class="form-select" id="coord-pao-assignment"><option value="">Seleccione PAO</option></select></div><div class="form-group"><label class="form-label">Asignatura</label><select class="form-select" id="coord-subject-assignment"><option value="">Seleccione asignatura</option></select></div></div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-primary btn-sm" onclick="coordCreateAssignment()">Asignar asignatura</button><button class="btn btn-ghost btn-sm" onclick="coordAddAsignatura()">+ Crear asignatura en malla</button></div></div></div>' : '') +
       (showAsignaturas ? '<div class="card"><div class="card-header"><div class="card-title">Configuraciones guardadas (todas)</div><button class="btn btn-primary btn-sm" onclick="coordCreateConfig()">Nueva configuración</button></div><div class="card-body" style="overflow-x:auto"><table class="data"><thead><tr><th>Asignatura</th><th>Docente</th><th>PAO</th><th>Ciclo</th><th>Progreso</th><th></th></tr></thead><tbody>' + (cfgRows || '<tr><td colspan="6" style="text-align:center;color:var(--gray-500);padding:16px">Sin configuraciones guardadas</td></tr>') + '</tbody></table></div></div>' : '') +
+      (showAsignaturas ? '<div class="card" style="border:1px solid #fecaca;background:#fff7f7"><div class="card-header"><div class="card-title" style="color:var(--red)">Zona de peligro</div></div><div class="card-body"><p style="font-size:.78rem;color:var(--gray-600);margin-bottom:10px">Reinicia la contraseña de <strong>todos los docentes</strong> a su cédula y elimina <strong>todas las configuraciones</strong> de los docentes. Se conserva únicamente lo del coordinador. Acción irreversible.</p><button class="btn btn-danger btn-sm" onclick="coordResetAll()">⟲ Reiniciar contraseñas y configuraciones</button></div></div>' : '') +
       (showRAC ? '<div class="card"><div class="card-header"><div class="card-title">Gestión de RAC</div></div><div class="card-body"><div class="form-grid"><div class="form-group"><label class="form-label">Carrera</label><select class="form-select" id="coord-career-rac" onchange="coordRenderRACList()"><option value="">Seleccione carrera</option>' + careerOptions + '</select></div><div class="form-group" style="display:flex;align-items:flex-end"><button class="btn btn-edit btn-sm" onclick="coordManualRAC()">Agregar RAC manual</button></div></div><div id="coord-rac-list" style="margin-top:10px;font-size:.8rem;color:var(--gray-600)">Seleccione carrera para listar RAC.</div></div></div>' : '') +
       (showRAAU ? '<div class="card"><div class="card-header"><div class="card-title">Gestión global RAAU por asignatura</div></div><div class="card-body"><div class="form-grid"><div class="form-group"><label class="form-label">Carrera</label><select class="form-select" id="coord-career" onchange="coordLoadSubjects()"><option value="">Seleccione carrera</option>' + careerOptions + '</select></div><div class="form-group"><label class="form-label">Asignatura</label><select class="form-select" id="coord-subject" onchange="coordRenderRAAUList()"><option value="">Seleccione asignatura</option></select></div></div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-edit btn-sm" onclick="coordEditMapping()">Editar mapeo RAC/RAAU</button><button class="btn btn-edit btn-sm" onclick="coordManualRAAU()">Agregar RAAU manual</button><button class="btn btn-ghost btn-sm" onclick="coordTriggerExcel()">Importar Excel RAC/RAAU</button><input type="file" id="coord-excel-input" accept=".xlsx,.xls,.csv" style="display:none" onchange="coordImportExcel(this.files)"></div><div id="coord-raau-list" style="margin-top:10px"></div></div></div>' : '') +
       (showDocentes ? '<div class="card"><div class="card-header"><div class="card-title">Docentes por Asignatura (Matriz)</div></div><div class="card-body"><table class="data"><thead><tr><th>Docente</th><th>Asignaturas asignadas</th><th>Total</th></tr></thead><tbody>' + coordDocenteMatrixRows() + '</tbody></table></div></div>' : '') +
@@ -875,6 +876,51 @@ export function registerCoordinacion(rt) {
     rt.fns.showToast(fixed ? (fixed + ' correo(s) corregidos a institucional.') : 'OASIS no devolvió correo institucional para esos docentes.', fixed ? 'success' : 'error');
   }
 
+  // Reinicia (irreversible) TODAS las contraseñas de docentes a su cédula y ELIMINA todas
+  // las configuraciones de los docentes; conserva solo lo del coordinador.
+  function coordResetAll() {
+    rt.fns.openModal('Reiniciar contraseñas y configuraciones',
+      '<p style="font-size:.82rem;color:var(--gray-700);line-height:1.5;margin-bottom:8px">Esta acción es <strong>irreversible</strong>:</p>' +
+      '<ul style="font-size:.8rem;color:var(--gray-700);margin:0 0 12px 18px;line-height:1.7"><li>Reinicia la contraseña de <strong>todos los docentes</strong> a su <strong>cédula</strong> (deberán cambiarla al ingresar).</li><li>Elimina <strong>todas las configuraciones (PAOs)</strong> de los docentes.</li><li>Conserva únicamente lo del <strong>coordinador</strong>.</li></ul>' +
+      '<div class="form-group"><label class="form-label">Escriba <strong>REINICIAR</strong> para confirmar</label><input class="form-input" id="reset-confirm" autocomplete="off" placeholder="REINICIAR"></div>',
+      [
+        { label: 'Cancelar', cls: 'btn-ghost', action: 'close' },
+        { label: 'Reiniciar todo', cls: 'btn-danger', action: function () {
+          var t = ((document.getElementById('reset-confirm') || {}).value || '').trim().toUpperCase();
+          if (t !== 'REINICIAR') { rt.fns.showToast('Escriba REINICIAR para confirmar.', 'error'); return; }
+          doCoordResetAll();
+        } }
+      ]);
+  }
+
+  function doCoordResetAll() {
+    var coordEmail = String((rt.STATE.currentUser && rt.STATE.currentUser.email) || COORDINADOR.email).toLowerCase();
+    // 1) Contraseñas de docentes (excepto coordinador) -> su cédula.
+    var pwd = 0;
+    (rt.STATE.docentes || []).forEach(function (d) {
+      if (String(d.email || '').toLowerCase() === coordEmail) return;
+      var ced = String(d.cedula || '').replace(/[^0-9kK]/g, '').toLowerCase();
+      if (ced) { d.password = ced; pwd++; }
+    });
+    // 2) Eliminar configuraciones que NO son del coordinador.
+    var all = rt.STATE.savedConfigs || [];
+    var keep = all.filter(function (c) { return String(c.ownerEmail || '').toLowerCase() === coordEmail; });
+    var removed = all.filter(function (c) { return String(c.ownerEmail || '').toLowerCase() !== coordEmail; });
+    rt.STATE.savedConfigs = keep;
+    removed.forEach(function (c) {
+      if (rt.STATE.studentsByConfig) delete rt.STATE.studentsByConfig[c.id];
+      if (rt.STATE.gradesByConfig) delete rt.STATE.gradesByConfig[c.id];
+    });
+    if (removed.some(function (c) { return c.id === rt.STATE.activeConfigId; })) {
+      rt.STATE.activeConfigId = '';
+      rt.STATE.configLocked = false;
+    }
+    rt.fns.save(); // pushToDb: putStore (coordinador) desactiva las configs eliminadas
+    rt.fns.closeModal();
+    renderCoordinacion('asignaturas');
+    rt.fns.showToast('Reiniciado: ' + pwd + ' contraseña(s) a cédula · ' + removed.length + ' configuración(es) eliminada(s).', 'success');
+  }
+
   function coordManualRAC() {
     var careerEl = document.getElementById('coord-career-assignment') || document.getElementById('coord-career-rac');
     var career = careerEl ? careerEl.value : '';
@@ -1087,7 +1133,7 @@ export function registerCoordinacion(rt) {
     renderCoordinacion, verHorario, expandCoordChart,
     coordSetDocentePassword, coordLoadSubjects, coordEditMapping, coordAddMapRow, coordSaveMapping,
     coordOpenConfig, coordCreateConfig, coordGoConfig, coordLoadSubjectsAssignment, coordCreateAssignment,
-    coordAddDocente, coordImportDocentes, coordOmitDocente, coordRestoreDocente, coordVerHorario, coordSetAllPasswords, coordFixDocenteEmails,
+    coordAddDocente, coordImportDocentes, coordOmitDocente, coordRestoreDocente, coordVerHorario, coordSetAllPasswords, coordFixDocenteEmails, coordResetAll,
     coordAddAsignatura, coordManualRAC, coordRenderRACList, coordEditRAC, coordDeleteRAC,
     coordManualRAAU, coordRenderRAAUList, coordEditRAAUItem, coordDeleteRAAUItem, coordTriggerExcel, coordImportExcel
   });
