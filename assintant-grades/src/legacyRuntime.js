@@ -493,11 +493,39 @@ export function initLegacyRuntime() {
     animate();
   }
 
+  var EYE_SVG = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+  var EYE_OFF_SVG = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+  // Agrega el "ojito" (mostrar/ocultar) a cada input de contraseña dentro de `root`.
+  function addPasswordEyes(root) {
+    var scope = root || document;
+    var inputs = scope.querySelectorAll('input[type="password"]:not([data-eye])');
+    Array.prototype.forEach.call(inputs, function (input) {
+      input.setAttribute('data-eye', '1');
+      var wrap = document.createElement('span');
+      wrap.className = 'password-wrap';
+      input.parentNode.insertBefore(wrap, input);
+      wrap.appendChild(input);
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'password-eye';
+      btn.setAttribute('aria-label', 'Mostrar contraseña');
+      btn.innerHTML = EYE_SVG;
+      btn.addEventListener('click', function () {
+        var show = input.type === 'password';
+        input.type = show ? 'text' : 'password';
+        btn.innerHTML = show ? EYE_OFF_SVG : EYE_SVG;
+        btn.setAttribute('aria-label', show ? 'Ocultar contraseña' : 'Mostrar contraseña');
+      });
+      wrap.appendChild(btn);
+    });
+  }
+
   function openModal(title, bodyHtml, actions) {
     var modalEl = document.querySelector('#modal-overlay .modal');
     if (modalEl) modalEl.style.maxWidth = ''; // ancho por defecto (lo amplía quien lo necesite)
     document.getElementById('modal-title').textContent = title;
     document.getElementById('modal-body').innerHTML = bodyHtml;
+    addPasswordEyes(document.getElementById('modal-body'));
     document.getElementById('modal-actions').innerHTML = actions.map(function (a, i) {
       return '<button class="btn ' + a.cls + '" onclick="_modalAction(' + i + ')">' + a.label + '</button>';
     }).join('');
@@ -711,6 +739,7 @@ export function initLegacyRuntime() {
   rt.fns.myAssignments = myAssignments;
   rt.fns.openModal = openModal;
   rt.fns.closeModal = closeModal;
+  rt.fns.addPasswordEyes = addPasswordEyes;
   rt.fns.addRecentActivity = addRecentActivity;
   rt.fns.cargarPaoActivo = cargarPaoActivo;
   rt.fns.closeSuccessModal = closeSuccessModal;
@@ -919,6 +948,7 @@ export function initLegacyRuntime() {
   window.coordSetAllPasswords = rt.fns.coordSetAllPasswords;
   window.coordFixDocenteEmails = rt.fns.coordFixDocenteEmails;
   window.coordResetAll = rt.fns.coordResetAll;
+  window.coordToggleAdmin = rt.fns.coordToggleAdmin;
   window.coordImportDocentes = rt.fns.coordImportDocentes;
   window.coordOmitDocente = rt.fns.coordOmitDocente;
   window.coordRestoreDocente = rt.fns.coordRestoreDocente;
@@ -1047,6 +1077,8 @@ export function initLegacyRuntime() {
     var rememberInput = document.getElementById('auth-remember');
     if (rememberInput) rememberInput.checked = localStorage.getItem('espoch_remember') !== '0';
   } catch { /* ignore */ }
+
+  addPasswordEyes(document); // ojito en el campo de contraseña del login
 
   window.addEventListener('beforeunload', function () {
     rt.fns.releaseLoginSession(STATE.currentUser, true);

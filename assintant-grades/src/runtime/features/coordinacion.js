@@ -571,7 +571,8 @@ export function registerCoordinacion(rt) {
           ? asigs.map(function (a) { return '<span class="tag-pao" style="background:var(--blue);margin:2px 4px 2px 0;display:inline-block">' + a.asignatura + ' · N' + a.pao + ' P' + a.paralelo + '</span>'; }).join('')
           : '<span style="font-size:.7rem;color:var(--gray-400)">Sin asignaturas</span>';
         var esCoord = d.role === 'coordinador' || d.rol === 'coordinador';
-        var rolTag = esCoord ? '<span class="badge badge-blue">Coordinador</span> ' : '';
+        var esAdmin = d.role === 'admin' || d.rol === 'admin';
+        var rolTag = esCoord ? '<span class="badge badge-blue">Coordinador</span> ' : (esAdmin ? '<span class="badge badge-blue">Administrador</span> ' : '');
         // El coordinador siempre tiene clave (sembrada en Neon). Para docentes,
         // d.hasPassword viene del backend (existe password_hash) aunque la clave
         // en claro no se envíe al cliente.
@@ -580,11 +581,13 @@ export function registerCoordinacion(rt) {
           ? '<span class="badge badge-green">Con clave</span>'
           : '<span class="badge badge-amber">Sin clave</span>';
         var omitButton = esCoord ? '' : '<button class="btn btn-danger btn-sm" onclick="coordOmitDocente(' + jsStringArg(d.email) + ')">Omitir</button>';
+        var adminButton = esCoord ? '' : '<button class="btn btn-sm ' + (esAdmin ? 'btn-danger' : 'btn-edit') + '" onclick="coordToggleAdmin(' + jsStringArg(d.email) + ')">' + (esAdmin ? '★ Quitar admin' : '☆ Hacer admin') + '</button>';
         return '<div class="item-row" style="align-items:flex-start;flex-wrap:wrap">' +
           '<div style="font-size:.8rem;flex:1;min-width:220px"><strong>' + d.name + '</strong> ' + rolTag + claveBadge +
           '<div style="font-size:.7rem;color:var(--gray-500)">' + d.email + (ced ? ' · ' + ced : '') + '</div>' +
           '<div style="margin-top:6px">' + asigHtml + '</div></div>' +
           '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+          adminButton +
           omitButton +
           '<button class="btn btn-ghost btn-sm" onclick="coordVerHorario(\'' + d.email + '\')">Ver horario</button>' +
           '<button class="btn btn-edit btn-sm" onclick="coordSetDocentePassword(\'' + d.email + '\')">Asignar contraseña</button>' +
@@ -790,6 +793,7 @@ export function registerCoordinacion(rt) {
         '<input class="form-input" id="coord-set-pass" type="password" autocomplete="new-password" placeholder="Contrasena para el docente" style="margin-bottom:8px">' +
         '<label class="form-label">Confirmar contrasena</label><input class="form-input" id="coord-set-pass-confirm" type="password" autocomplete="new-password">' +
         rt.fns.passwordHelpHtml();
+      rt.fns.addPasswordEyes(document.getElementById('modal-body'));
     }
     (window._modalActions || []).forEach(function (action) {
       if (!action || action.label !== 'Guardar' || action.cls !== 'btn-success') return;
@@ -874,6 +878,25 @@ export function registerCoordinacion(rt) {
     rt.fns.save();
     renderCoordinacion('asignaturas');
     rt.fns.showToast(fixed ? (fixed + ' correo(s) corregidos a institucional.') : 'OASIS no devolvió correo institucional para esos docentes.', fixed ? 'success' : 'error');
+  }
+
+  // Da o quita acceso de ADMINISTRADOR a un docente (mismas opciones que el coordinador).
+  function coordToggleAdmin(email) {
+    var d = (rt.STATE.docentes || []).find(function (x) { return normalizeEmail(x.email) === normalizeEmail(email); });
+    if (!d) { rt.fns.showToast('Docente no encontrado.', 'error'); return; }
+    var makeAdmin = (d.rol || d.role) !== 'admin';
+    rt.fns.openModal(makeAdmin ? 'Dar acceso de administrador' : 'Quitar acceso de administrador',
+      '<p style="font-size:.82rem;color:var(--gray-700);line-height:1.5">' + (makeAdmin
+        ? '<strong>' + d.name + '</strong> tendrá las MISMAS opciones que el coordinador: Coordinación, Asignaturas, RAC, RAAU y gestión de todas las configuraciones.'
+        : '<strong>' + d.name + '</strong> volverá a ser docente normal (solo sus propias asignaturas).') + '</p>',
+      [{ label: 'Cancelar', cls: 'btn-ghost', action: 'close' }, { label: makeAdmin ? 'Hacer administrador' : 'Quitar admin', cls: makeAdmin ? 'btn-success' : 'btn-danger', action: function () {
+        d.rol = makeAdmin ? 'admin' : 'docente';
+        d.role = d.rol;
+        rt.fns.save();
+        rt.fns.closeModal();
+        renderCoordinacion('asignaturas');
+        rt.fns.showToast(d.name + (makeAdmin ? ' ahora es Administrador.' : ' ahora es Docente.'), 'success');
+      } }]);
   }
 
   // Reinicia (irreversible) TODAS las contraseñas de docentes a su cédula y ELIMINA todas
@@ -1133,7 +1156,7 @@ export function registerCoordinacion(rt) {
     renderCoordinacion, verHorario, expandCoordChart,
     coordSetDocentePassword, coordLoadSubjects, coordEditMapping, coordAddMapRow, coordSaveMapping,
     coordOpenConfig, coordCreateConfig, coordGoConfig, coordLoadSubjectsAssignment, coordCreateAssignment,
-    coordAddDocente, coordImportDocentes, coordOmitDocente, coordRestoreDocente, coordVerHorario, coordSetAllPasswords, coordFixDocenteEmails, coordResetAll,
+    coordAddDocente, coordImportDocentes, coordOmitDocente, coordRestoreDocente, coordVerHorario, coordSetAllPasswords, coordFixDocenteEmails, coordResetAll, coordToggleAdmin,
     coordAddAsignatura, coordManualRAC, coordRenderRACList, coordEditRAC, coordDeleteRAC,
     coordManualRAAU, coordRenderRAAUList, coordEditRAAUItem, coordDeleteRAAUItem, coordTriggerExcel, coordImportExcel
   });
