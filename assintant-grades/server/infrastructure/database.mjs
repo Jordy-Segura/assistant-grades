@@ -490,6 +490,18 @@ export class Database {
           [email, nombre, d.cedula || "", rol, defaultHash, d]
         );
       }
+      // Si este docente (por CÉDULA) tenía OTRA fila con otro correo (p. ej. el personal
+      // de una importación anterior), desactivarla para que no quede duplicada/obsoleta.
+      const cedClean = cleanDocId(d.cedula || "");
+      if (cedClean) {
+        await client.query(
+          `UPDATE app_docentes_sistema SET activo=false, updated_at=now()
+           WHERE rol <> 'coordinador'
+             AND lower(regexp_replace(coalesce(cedula,''),'[^0-9kK]','','g')) = $1
+             AND lower(email) <> lower($2)`,
+          [cedClean, email]
+        );
+      }
     }
   }
 
