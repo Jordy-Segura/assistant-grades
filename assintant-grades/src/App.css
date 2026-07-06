@@ -201,7 +201,7 @@ table { border-collapse: collapse; }
 .footer-role { color: var(--gray-400); font-size: .66rem; }
 
 /* ===== MAIN CONTENT ===== */
-#main { flex: 1; overflow-y: auto; display: flex; flex-direction: column; background: var(--bg); min-width: 0; }
+#main { flex: 1; overflow-x: hidden; overflow-y: auto; display: flex; flex-direction: column; background: var(--bg); min-width: 0; }
 .app-header {
   padding: 10px 24px; background: var(--white);
   border-bottom: 1px solid var(--gray-200);
@@ -231,13 +231,15 @@ table { border-collapse: collapse; }
 .card {
   background: var(--white); border-radius: var(--radius-lg);
   border: 1px solid var(--gray-200); box-shadow: var(--shadow-sm);
+  min-width: 0;
 }
 .card-header {
   padding: 14px 18px; border-bottom: 1px solid var(--gray-100);
   display: flex; align-items: center; justify-content: space-between;
   gap: 12px; flex-wrap: wrap;
+  min-width: 0;
 }
-.card-title { font-size: .88rem; font-weight: 600; color: var(--gray-700); }
+.card-title { font-size: .88rem; font-weight: 600; color: var(--gray-700); min-width: 0; overflow-wrap: anywhere; }
 .card-body { padding: 18px; }
 
 /* ===== STAT CARDS ===== */
@@ -778,7 +780,72 @@ table.data tbody tr:last-child td { border-bottom: none; }
 
 /* ===== COORDINATION LAYOUT ===== */
 .coord-layout { display: grid; gap: 16px; }
+.coord-stat-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 0; }
 .coord-chart-grid { display: grid; grid-template-columns: 1.1fr .9fr; gap: 16px; }
+.coord-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.coord-help-text {
+  font-size: .78rem;
+  color: var(--gray-500);
+  line-height: 1.45;
+  margin-bottom: 6px;
+  overflow-wrap: anywhere;
+}
+.coord-list-title {
+  font-size: .78rem;
+  font-weight: 700;
+  color: var(--gray-800);
+  margin: 8px 0;
+}
+.coord-list-title-spaced { margin-top: 14px; }
+.coord-docente-row {
+  align-items: flex-start;
+  flex-wrap: wrap;
+  max-width: 100%;
+  overflow: hidden;
+}
+.coord-docente-omitted { background: var(--red-bg); }
+.coord-docente-info {
+  flex: 1 1 260px;
+  min-width: 0;
+  font-size: .8rem;
+}
+.coord-docente-name {
+  display: inline;
+  overflow-wrap: anywhere;
+}
+.coord-docente-meta {
+  font-size: .7rem;
+  color: var(--gray-500);
+  overflow-wrap: anywhere;
+}
+.coord-assig-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-width: 100%;
+  margin-top: 6px;
+}
+.coord-assig-tag {
+  display: inline-flex;
+  max-width: 100%;
+  margin: 0;
+  background: var(--blue);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.2;
+}
+.coord-docente-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+  max-width: 100%;
+}
 .rep-layout { display: grid; grid-template-columns: 1fr 300px; gap: 18px; margin-bottom: 18px; }
 
 /* ===== CONSULTA SEDE ORELLANA (accordion) ===== */
@@ -902,6 +969,7 @@ table.data tbody tr:last-child td { border-bottom: none; }
   .nav-item { margin-bottom: 1px; font-size: .82rem; padding: 10px 12px; }
   .nav-item:hover { padding-left: 16px; }
   .stat-grid { grid-template-columns: repeat(2, 1fr); }
+  .coord-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .quick-grid { grid-template-columns: repeat(2, 1fr); }
   .page { padding: 16px 18px; }
   .page-title { font-size: 1.2rem; }
@@ -953,8 +1021,56 @@ table.data tbody tr:last-child td { border-bottom: none; }
   .comp-bar { gap: 6px; }
   .comp-legend { font-size: .68rem; }
   .item-row, .saved-config-item { flex-wrap: wrap; }
+  .coord-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+  .coord-actions .btn {
+    width: 100%;
+    justify-content: center;
+    min-width: 0;
+    white-space: normal;
+    text-align: center;
+  }
+  .coord-docente-row {
+    flex-direction: column;
+    align-items: stretch !important;
+    gap: 10px;
+    padding: 12px;
+  }
+  .coord-docente-info {
+    flex: none;
+    width: 100%;
+    min-width: 0;
+  }
+  .coord-docente-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+  .coord-docente-actions .btn,
+  .coord-docente-row > .btn {
+    width: 100%;
+    min-width: 0;
+    justify-content: center;
+    white-space: normal;
+    text-align: center;
+  }
+  .coord-assig-tag {
+    font-size: .62rem;
+    padding: 3px 7px;
+  }
   .csede-pao-header, .csede-mat-header, .csede-doc-header { font-size: .76rem; padding: 8px 10px; }
   .csede-mat-body { padding-left: 16px; }
+}
+
+@media (max-width: 420px) {
+  .coord-stat-grid { grid-template-columns: 1fr; }
+  .coord-actions,
+  .coord-docente-actions {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* ===== ANIMATIONS ===== */

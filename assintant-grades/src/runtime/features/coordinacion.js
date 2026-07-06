@@ -97,11 +97,11 @@ export function registerCoordinacion(rt) {
     var showRAAU = section === 'raau';
     target.innerHTML =
       '<div class="coord-layout">' +
-      '<div class="stat-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:0"><div class="stat-card"><div class="stat-label">Configuraciones activas</div><div class="stat-val" style="color:var(--gray-800)">' + totalConfigs + '</div><div class="stat-sub">Histórico guardado</div></div><div class="stat-card"><div class="stat-label">Estudiantes monitoreados</div><div class="stat-val" style="color:var(--green)">' + totalStudents + '</div><div class="stat-sub">Suma de todas las configuraciones</div></div><div class="stat-card"><div class="stat-label">Avance promedio</div><div class="stat-val" style="color:var(--amber)">' + avgCompletion + '%</div><div class="stat-sub">Carga global de notas</div></div></div>' +
+      '<div class="stat-grid coord-stat-grid"><div class="stat-card"><div class="stat-label">Configuraciones activas</div><div class="stat-val" style="color:var(--gray-800)">' + totalConfigs + '</div><div class="stat-sub">Histórico guardado</div></div><div class="stat-card"><div class="stat-label">Estudiantes monitoreados</div><div class="stat-val" style="color:var(--green)">' + totalStudents + '</div><div class="stat-sub">Suma de todas las configuraciones</div></div><div class="stat-card"><div class="stat-label">Avance promedio</div><div class="stat-val" style="color:var(--amber)">' + avgCompletion + '%</div><div class="stat-sub">Carga global de notas</div></div></div>' +
       (showOverview ? '<div class="coord-chart-grid"><div class="card chart-card" onclick="window.expandCoordChart(\'docentes\')" title="Click para ampliar"><span class="chart-expand-ico">' + EXPAND_ICO + '</span><div class="card-header"><div class="card-title">Aporte por asignatura a cada RAC</div></div><div class="card-body"><canvas id="coord-chart-docentes" height="200"></canvas></div></div><div class="card chart-card" onclick="window.expandCoordChart(\'configs\')" title="Click para ampliar"><span class="chart-expand-ico">' + EXPAND_ICO + '</span><div class="card-header"><div class="card-title">Top asignaturas que más aportan RAC</div></div><div class="card-body"><canvas id="coord-chart-configs" height="200"></canvas></div></div></div>' : '') +
       (showDocentes ? '<div class="coord-chart-grid"><div class="card chart-card" onclick="window.expandCoordChart(\'docAvance\')" title="Click para ampliar"><span class="chart-expand-ico">' + EXPAND_ICO + '</span><div class="card-header"><div class="card-title">Avance de calificación por docente</div></div><div class="card-body"><canvas id="coord-chart-doc-avance" height="200"></canvas></div></div><div class="card chart-card" onclick="window.expandCoordChart(\'docCarga\')" title="Click para ampliar"><span class="chart-expand-ico">' + EXPAND_ICO + '</span><div class="card-header"><div class="card-title">Carga de asignaturas por docente</div></div><div class="card-body"><canvas id="coord-chart-doc-carga" height="200"></canvas></div></div></div>' : '') +
       (showDocentes ? '<div class="card" style="margin-bottom:16px"><div class="card-header"><div class="card-title">Monitoreo docente</div></div><div class="card-body"><table class="data"><thead><tr><th>Docente</th><th>Asignaturas</th><th>Avance</th></tr></thead><tbody>' + (docenteRows || '<tr><td colspan="3">Sin datos</td></tr>') + '</tbody></table></div></div>' : '') +
-      (showAsignaturas ? '<div class="card"><div class="card-header"><div class="card-title">Docentes y sus asignaturas</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-success btn-sm" onclick="coordImportDocentes()">⬇ Importar de OASIS</button><button class="btn btn-edit btn-sm" onclick="coordSetAllPasswords()">🔑 Clave a todos</button><button class="btn btn-ghost btn-sm" onclick="coordFixDocenteEmails()">✉ Corregir correos</button><button class="btn btn-primary btn-sm" onclick="coordAddDocente()">+ Docente</button></div></div><div class="card-body"><p style="font-size:.78rem;color:var(--gray-500);margin-bottom:6px">Importa docentes con sus cargas (materia · nivel · paralelo) desde OASIS. Por defecto cada docente ingresa con su <strong>cédula</strong> y la cambia al primer ingreso; o usa "Clave a todos" para fijar una. Cada docente solo ve y califica sus propias asignaturas.</p><div id="coord-docentes-list"></div></div></div>' : '') +
+      (showAsignaturas ? '<div class="card"><div class="card-header"><div class="card-title">Docentes y sus asignaturas</div><div class="coord-actions"><button class="btn btn-success btn-sm" onclick="coordImportDocentes()">⬇ Importar de OASIS</button><button class="btn btn-edit btn-sm" onclick="coordSetAllPasswords()">🔑 Clave a todos</button><button class="btn btn-ghost btn-sm" onclick="coordFixDocenteEmails()">✉ Corregir correos</button><button class="btn btn-primary btn-sm" onclick="coordAddDocente()">+ Docente</button></div></div><div class="card-body"><p class="coord-help-text">Importa docentes con sus cargas (materia · nivel · paralelo) desde OASIS. Por defecto cada docente ingresa con su <strong>cédula</strong> y la cambia al primer ingreso; o usa "Clave a todos" para fijar una. Cada docente solo ve y califica sus propias asignaturas.</p><div id="coord-docentes-list"></div></div></div>' : '') +
       (showAsignaturas ? '<div class="card"><div class="card-header"><div class="card-title">Asignar una asignatura manualmente</div></div><div class="card-body"><div class="form-grid"><div class="form-group"><label class="form-label">Docente</label><select class="form-select" id="coord-doc-email"><option value="">Seleccione docente</option>' + docenteOptions + '</select></div><div class="form-group"><label class="form-label">Carrera</label><select class="form-select" id="coord-career-assignment" onchange="coordLoadSubjectsAssignment()"><option value="">Seleccione carrera</option>' + careerOptions + '</select></div></div><div class="form-grid"><div class="form-group"><label class="form-label">PAO</label><select class="form-select" id="coord-pao-assignment"><option value="">Seleccione PAO</option></select></div><div class="form-group"><label class="form-label">Asignatura</label><select class="form-select" id="coord-subject-assignment"><option value="">Seleccione asignatura</option></select></div></div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-primary btn-sm" onclick="coordCreateAssignment()">Asignar asignatura</button><button class="btn btn-ghost btn-sm" onclick="coordAddAsignatura()">+ Crear asignatura en malla</button></div></div></div>' : '') +
       (showAsignaturas ? '<div class="card"><div class="card-header"><div class="card-title">Configuraciones guardadas (todas)</div><button class="btn btn-primary btn-sm" onclick="coordCreateConfig()">Nueva configuración</button></div><div class="card-body" style="overflow-x:auto"><table class="data"><thead><tr><th>Asignatura</th><th>Docente</th><th>PAO</th><th>Ciclo</th><th>Progreso</th><th></th></tr></thead><tbody>' + (cfgRows || '<tr><td colspan="6" style="text-align:center;color:var(--gray-500);padding:16px">Sin configuraciones guardadas</td></tr>') + '</tbody></table></div></div>' : '') +
       (showAsignaturas ? '<div class="card" style="border:1px solid #fecaca;background:#fff7f7"><div class="card-header"><div class="card-title" style="color:var(--red)">Zona de peligro</div></div><div class="card-body"><p style="font-size:.78rem;color:var(--gray-600);margin-bottom:10px">Reinicia la contraseña de <strong>todos los docentes</strong> a su cédula y elimina <strong>todas las configuraciones</strong> de los docentes. Se conserva únicamente lo del coordinador. Acción irreversible.</p><button class="btn btn-danger btn-sm" onclick="coordResetAll()">⟲ Reiniciar contraseñas y configuraciones</button></div></div>' : '') +
@@ -562,13 +562,13 @@ export function registerCoordinacion(rt) {
     // El coordinador también es docente: aparece en la lista (marcado).
     var docentes = [COORDINADOR].concat(rt.fns.getDocentes());
     var omitted = rt.fns.getExcludedDocentes();
-    target.innerHTML = '<div style="font-size:.78rem;font-weight:700;color:var(--gray-800);margin:8px 0">Docentes registrados (' + docentes.length + ')</div>' +
+    target.innerHTML = '<div class="coord-list-title">Docentes registrados (' + docentes.length + ')</div>' +
       (docentes.map(function (d) {
         var asigs = (rt.STATE.teacherAssignments || []).filter(function (a) { return a.docenteEmail === d.email; });
         // La cédula del coordinador no viene en su cuenta, pero sí en sus cargas OASIS.
         var ced = d.cedula || (asigs[0] && asigs[0].cedula) || '';
         var asigHtml = asigs.length
-          ? asigs.map(function (a) { return '<span class="tag-pao" style="background:var(--blue);margin:2px 4px 2px 0;display:inline-block">' + a.asignatura + ' · N' + a.pao + ' P' + a.paralelo + '</span>'; }).join('')
+          ? asigs.map(function (a) { return '<span class="tag-pao coord-assig-tag">' + a.asignatura + ' · N' + a.pao + ' P' + a.paralelo + '</span>'; }).join('')
           : '<span style="font-size:.7rem;color:var(--gray-400)">Sin asignaturas</span>';
         var esCoord = d.role === 'coordinador' || d.rol === 'coordinador';
         var esAdmin = d.role === 'admin' || d.rol === 'admin';
@@ -582,11 +582,11 @@ export function registerCoordinacion(rt) {
           : '<span class="badge badge-amber">Sin clave</span>';
         var omitButton = esCoord ? '' : '<button class="btn btn-danger btn-sm" onclick="coordOmitDocente(' + jsStringArg(d.email) + ')">Omitir</button>';
         var adminButton = esCoord ? '' : '<button class="btn btn-sm ' + (esAdmin ? 'btn-danger' : 'btn-edit') + '" onclick="coordToggleAdmin(' + jsStringArg(d.email) + ')">' + (esAdmin ? '★ Quitar admin' : '☆ Hacer admin') + '</button>';
-        return '<div class="item-row" style="align-items:flex-start;flex-wrap:wrap">' +
-          '<div style="font-size:.8rem;flex:1;min-width:220px"><strong>' + d.name + '</strong> ' + rolTag + claveBadge +
-          '<div style="font-size:.7rem;color:var(--gray-500)">' + d.email + (ced ? ' · ' + ced : '') + '</div>' +
-          '<div style="margin-top:6px">' + asigHtml + '</div></div>' +
-          '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+        return '<div class="item-row coord-docente-row">' +
+          '<div class="coord-docente-info"><strong class="coord-docente-name">' + d.name + '</strong> ' + rolTag + claveBadge +
+          '<div class="coord-docente-meta">' + d.email + (ced ? ' · ' + ced : '') + '</div>' +
+          '<div class="coord-assig-list">' + asigHtml + '</div></div>' +
+          '<div class="coord-docente-actions">' +
           adminButton +
           omitButton +
           '<button class="btn btn-ghost btn-sm" onclick="coordVerHorario(\'' + d.email + '\')">Ver horario</button>' +
@@ -594,13 +594,13 @@ export function registerCoordinacion(rt) {
           '</div></div>';
       }).join(''));
     if (omitted.length) {
-      target.innerHTML += '<div style="font-size:.78rem;font-weight:700;color:var(--gray-800);margin:14px 0 8px">Docentes omitidos (' + omitted.length + ')</div>' +
+      target.innerHTML += '<div class="coord-list-title coord-list-title-spaced">Docentes omitidos (' + omitted.length + ')</div>' +
         omitted.map(function (d) {
           var nombre = d.name || d.nombre || d.nombres || d.email || d.cedula || 'Docente';
           var detalle = [d.email, d.cedula, d.motivo ? ('Motivo: ' + d.motivo) : ''].filter(Boolean).join(' - ');
-          return '<div class="item-row" style="align-items:flex-start;flex-wrap:wrap;background:var(--red-bg)">' +
-            '<div style="font-size:.8rem;flex:1;min-width:220px"><strong>' + escapeHtml(nombre) + '</strong> <span class="badge badge-red">Omitido</span>' +
-            '<div style="font-size:.7rem;color:var(--gray-500)">' + escapeHtml(detalle) + '</div>' +
+          return '<div class="item-row coord-docente-row coord-docente-omitted">' +
+            '<div class="coord-docente-info"><strong class="coord-docente-name">' + escapeHtml(nombre) + '</strong> <span class="badge badge-red">Omitido</span>' +
+            '<div class="coord-docente-meta">' + escapeHtml(detalle) + '</div>' +
             '<div style="font-size:.68rem;color:var(--gray-500);margin-top:4px">No se importara desde OASIS ni podra iniciar sesion mientras este omitido.</div></div>' +
             '<button class="btn btn-edit btn-sm" onclick="coordRestoreDocente(' + jsStringArg(d.id) + ')">Restaurar</button>' +
             '</div>';

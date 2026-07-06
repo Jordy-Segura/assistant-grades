@@ -1,0 +1,19 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "bff",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "server"],
+      "cwd": "assintant-grades",
+      "port": 3001
+    },
+    {
+      "name": "web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "cwd": "assintant-grades",
+      "port": 5173
+    }
+  ]
+}
