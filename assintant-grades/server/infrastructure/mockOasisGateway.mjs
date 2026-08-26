@@ -7,7 +7,12 @@
 // ============================================================================
 import { resolverCorreo } from "../domain/mappers.mjs";
 
-const MOCK_PERIODO = { codigo: "P0045", descripcion: "2 MARZO -15 JULIO 2026", fechaInicio: "2026-02-18", fechaFin: "2026-07-18" };
+const MOCK_PERIODO_2026_A = { codigo: "P0045", descripcion: "2 MARZO -15 JULIO 2026", fechaInicio: "2026-02-18", fechaFin: "2026-07-18" };
+const MOCK_PERIODO_2026_B = { codigo: "P0046", descripcion: "1 SEPTIEMBRE 2026 -28 FEBRERO 2027", fechaInicio: "2026-09-01", fechaFin: "2027-02-28" };
+
+function getMockPeriodoActual(now = new Date()) {
+  return now > new Date("2026-07-18T23:59:59-05:00") ? MOCK_PERIODO_2026_B : MOCK_PERIODO_2026_A;
+}
 
 const MOCK_CARRERAS = [
   { codigo: "ITIO", nombre: "TECNOLOGIAS DE LA INFORMACION (SEDE ORELLANA)", estado: "ABI" },
@@ -79,7 +84,7 @@ function derivarMateriasDe(codCarrera) {
 // Implementa la misma interfaz que OasisGateway con datos de demostración.
 export class MockOasisGateway {
   async getPeriodoActual() {
-    return { ...MOCK_PERIODO };
+    return { ...getMockPeriodoActual() };
   }
 
   async getFacultades() {

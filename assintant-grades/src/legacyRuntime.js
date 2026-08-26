@@ -933,6 +933,7 @@ export function initLegacyRuntime() {
   window.selectPaoFromDropdown = selectPaoFromDropdown;
   window.doLogin = rt.fns.doLogin;
   window.doLogout = rt.fns.doLogout;
+  window.autoLoadPeriodo = rt.fns.autoLoadPeriodo;
   window.openProfile = rt.fns.openProfile;
   window.coordSetDocentePassword = rt.fns.coordSetDocentePassword;
   window.coordLoadSubjects = rt.fns.coordLoadSubjects;

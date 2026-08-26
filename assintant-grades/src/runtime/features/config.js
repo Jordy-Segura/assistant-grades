@@ -132,10 +132,13 @@ export function registerConfig(rt) {
   function applyDefaultTemplateIfNeeded() {
     // El período académico vigente proviene de OASIS; nunca de un valor fijo.
     var oasisDesc = (rt.STATE.oasisPeriodo && rt.STATE.oasisPeriodo.descripcion) || '';
-    var template = (rt.STATE.savedConfigs && rt.STATE.savedConfigs.length > 0) ? rt.STATE.savedConfigs[0] : null;
     if (!rt.STATE.courseConfig.periodoAcademico) {
-      rt.STATE.courseConfig.periodoAcademico = oasisDesc || (template && template.courseConfig.periodoAcademico) || '';
+      rt.STATE.courseConfig.periodoAcademico = oasisDesc || '';
     }
+    if (!rt.STATE.courseConfig.codPeriodo && rt.STATE.oasisPeriodo && rt.STATE.oasisPeriodo.codigo) {
+      rt.STATE.courseConfig.codPeriodo = rt.STATE.oasisPeriodo.codigo;
+    }
+    var template = (rt.STATE.savedConfigs && rt.STATE.savedConfigs.length > 0) ? rt.STATE.savedConfigs[0] : null;
     if (!rt.STATE.courseConfig.aporte) {
       rt.STATE.courseConfig.aporte = (template && template.courseConfig.aporte) || 'FIN DE CICLO';
     }
@@ -317,7 +320,22 @@ export function registerConfig(rt) {
       var totalMax = acts.reduce(function (s, a) { return s + a.maxScore; }, 0);
       var maxWeight = COMPONENT_WEIGHTS[comp];
       var remaining = maxWeight - totalMax;
-      return '<div style="margin-bottom:20px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><div><span style="font-weight:700;color:' + color + ';font-size:.85rem">' + comp + '</span><span style="font-size:.75rem;color:var(--gray-500);margin-left:8px">' + COMPONENT_LABELS[comp] + '</span></div><div style="display:flex;align-items:center;gap:8px"><span style="font-size:.72rem;color:' + (remaining < 0 ? 'var(--red)' : 'var(--gray-400)') + '">' + remaining.toFixed(1) + ' pts disponibles</span><button class="btn btn-sm" style="background:' + color + '15;color:' + color + '" onclick="addActivity(\'' + comp + '\')">Agregar</button></div></div><div id="acts-' + comp + '">' + acts.map(function (act) { return activityItemHTML(act, comp, color); }).join('') + '</div></div>';
+      var pctVal = maxWeight > 0 ? Math.min(100, Math.max(0, totalMax / maxWeight * 100)) : 0;
+      var statusClass = remaining < -0.001 ? 'over' : remaining > 0.001 ? 'pending' : 'complete';
+      var statusText = remaining < -0.001
+        ? ('Excede ' + Math.abs(remaining).toFixed(1) + ' pts')
+        : remaining > 0.001
+          ? ('Faltan ' + remaining.toFixed(1) + ' pts')
+          : 'Completo';
+      var listHtml = acts.map(function (act) { return activityItemHTML(act, comp, color); }).join('');
+      if (!listHtml) listHtml = '<div class="cfg-activity-empty">Sin actividades en este componente.</div>';
+      return '<section class="cfg-activity-component ' + statusClass + '" style="--component-color:' + color + '">' +
+        '<div class="cfg-activity-head"><div class="cfg-component-heading"><span class="cfg-component-code">' + comp + '</span><div><div class="cfg-component-name">' + COMPONENT_LABELS[comp] + '</div><div class="cfg-component-rule">Minimo 2 actividades - Peso ' + maxWeight.toFixed(1) + ' pts</div></div></div>' +
+        '<div class="cfg-score-actions"><div class="cfg-score-pill">' + totalMax.toFixed(1) + ' / ' + maxWeight.toFixed(1) + ' pts</div><button class="btn btn-sm cfg-add-activity" onclick="addActivity(\'' + comp + '\')">Agregar</button></div></div>' +
+        '<div class="cfg-activity-meter"><span style="width:' + pctVal.toFixed(0) + '%"></span></div>' +
+        '<div class="cfg-activity-state"><span>' + acts.length + ' actividad' + (acts.length !== 1 ? 'es' : '') + '</span><strong>' + statusText + '</strong></div>' +
+        '<div class="cfg-activity-list" id="acts-' + comp + '">' + listHtml + '</div>' +
+      '</section>';
     }).join('');
     renderActivitiesSummary();
   }
@@ -334,9 +352,9 @@ export function registerConfig(rt) {
       var total = acts.reduce(function (sum, a) { return sum + a.maxScore; }, 0);
       var expected = COMPONENT_WEIGHTS[comp];
       var pctComp = Math.round((total / expected) * 100);
-      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 10px;background:white;border:1px solid var(--gray-200);border-radius:8px;margin-bottom:6px">' +
-        '<span style="font-size:.76rem;color:var(--gray-600)">' + comp + ': ' + acts.length + ' actividades</span>' +
-        '<span style="font-size:.75rem;font-weight:700;color:' + COMPONENT_COLORS[comp] + '">' + total.toFixed(1) + '/' + expected + ' pts (' + Math.min(pctComp, 100) + '%)</span>' +
+      return '<div class="cfg-summary-row" style="--component-color:' + COMPONENT_COLORS[comp] + '">' +
+        '<span>' + comp + ': ' + acts.length + ' actividades</span>' +
+        '<strong>' + total.toFixed(1) + '/' + expected + ' pts (' + Math.min(pctComp, 100) + '%)</strong>' +
       '</div>';
     }).join('');
     summaryContent.innerHTML = lines;
@@ -347,11 +365,12 @@ export function registerConfig(rt) {
     var racIdToSearch = (raauEntry && raauEntry.racId) || act.racId;
     var rac = rt.CAREER_RACS.find(function (r) { return r.id === racIdToSearch; });
     var procedure = (rt.EVAL_PROCEDURES[comp] || []).find(function (p) { return p.id === act.procedureId; });
-    return '<div class="item-row">' +
-      '<span class="comp-pill" style="background:' + color + '15;color:' + color + '">' + comp + '</span>' +
-      '<div style="flex:1"><div class="item-name">' + act.name + '</div><div class="item-sub">Max: ' + act.maxScore + ' pts | RAAU: ' + (raauEntry ? raauEntry.code : '—') + ' | RAC: ' + (rac ? rac.code : '—') + ' | Proc: ' + (procedure ? procedure.name : '—') + '</div></div>' +
-      '<button class="btn btn-edit btn-sm" onclick="editActivity(\'' + act.id + '\')" title="Editar">Editar</button>' +
-      '<button class="btn btn-danger btn-sm" onclick="deleteActivity(\'' + act.id + '\')" title="Eliminar">Eliminar</button>' +
+    return '<div class="cfg-activity-item" style="--component-color:' + color + '">' +
+      '<div class="cfg-activity-main"><span class="comp-pill cfg-activity-pill" style="background:' + color + '15;color:' + color + '">' + comp + '</span>' +
+      '<div class="cfg-activity-copy"><div class="cfg-activity-title">' + escapeHtml(act.name || 'Actividad sin nombre') + '</div>' +
+      '<div class="cfg-activity-meta"><span>Max: ' + Number(act.maxScore || 0).toFixed(1) + ' pts</span><span>RAAU: ' + escapeHtml(raauEntry ? raauEntry.code : 'N/A') + '</span><span>RAC: ' + escapeHtml(rac ? rac.code : 'N/A') + '</span><span>Proc: ' + escapeHtml(procedure ? procedure.name : 'N/A') + '</span></div></div></div>' +
+      '<div class="cfg-activity-actions"><button class="btn btn-edit btn-sm" onclick="editActivity(\'' + act.id + '\')" title="Editar">Editar</button>' +
+      '<button class="btn btn-danger btn-sm" onclick="deleteActivity(\'' + act.id + '\')" title="Eliminar">Eliminar</button></div>' +
       '</div>';
   }
 
@@ -389,7 +408,14 @@ export function registerConfig(rt) {
 
     var config = rt.STATE.courseConfig;
     if (cfgStep === 0) {
-      document.getElementById('cfg-periodo').value = config.periodoAcademico || (rt.STATE.oasisPeriodo && rt.STATE.oasisPeriodo.descripcion) || '';
+      var periodoActual = rt.STATE.oasisPeriodo || {};
+      document.getElementById('cfg-periodo').value = periodoActual.descripcion || config.periodoAcademico || '';
+      var periodoHelp = document.getElementById('cfg-periodo-help');
+      if (periodoHelp) {
+        periodoHelp.textContent = periodoActual.codigo
+          ? 'Periodo vigente desde OASIS - Codigo ' + periodoActual.codigo
+          : 'Se actualiza automaticamente al ingresar o al presionar Actualizar.';
+      }
       var docenteDefault = config.docente || (rt.STATE.currentUser && rt.STATE.currentUser.name) || '';
       document.getElementById('cfg-docente').value = docenteDefault;
       document.getElementById('cfg-aporte').value = config.aporte || 'FIN DE CICLO';
@@ -467,7 +493,8 @@ export function registerConfig(rt) {
   function cfgPrev() { if (cfgStep > 0) { cfgStep--; renderCfgStep(); } }
   function cfgNext() {
     if (cfgStep === 0) {
-      var periodoVal = document.getElementById('cfg-periodo').value;
+      var periodoActual = rt.STATE.oasisPeriodo || {};
+      var periodoVal = periodoActual.descripcion || document.getElementById('cfg-periodo').value;
       var carreraVal = document.getElementById('cfg-carrera').value;
       var asignaturaVal = document.getElementById('cfg-asignatura').value;
       var docenteVal = document.getElementById('cfg-docente').value;
@@ -483,6 +510,7 @@ export function registerConfig(rt) {
       var duplicate = findDuplicateConfig(tentativa, rt.STATE.editingConfigId || rt.STATE.activeConfigId);
       if (duplicate) { notifyDuplicateConfig(duplicate); return; }
       rt.STATE.courseConfig.periodoAcademico = periodoVal;
+      rt.STATE.courseConfig.codPeriodo = periodoActual.codigo || rt.STATE.courseConfig.codPeriodo || '';
       rt.STATE.courseConfig.facultad = document.getElementById('cfg-facultad').value;
       rt.STATE.courseConfig.carrera = carreraVal;
       rt.STATE.courseConfig.asignatura = asignaturaVal;
@@ -676,7 +704,8 @@ export function registerConfig(rt) {
     rt.STATE.configLocked = false;
     rt.STATE.activeConfigId = '';
     rt.STATE.editingConfigId = '';
-    rt.STATE.courseConfig.periodoAcademico = '';
+    rt.STATE.courseConfig.periodoAcademico = (rt.STATE.oasisPeriodo && rt.STATE.oasisPeriodo.descripcion) || '';
+    rt.STATE.courseConfig.codPeriodo = (rt.STATE.oasisPeriodo && rt.STATE.oasisPeriodo.codigo) || '';
     rt.STATE.courseConfig.carrera = '';
     rt.STATE.courseConfig.pao = '';
     rt.STATE.courseConfig.asignatura = '';

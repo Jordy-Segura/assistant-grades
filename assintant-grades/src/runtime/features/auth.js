@@ -210,6 +210,7 @@ export function registerAuth(rt) {
     rt.STATE.activeConfigId = '';
     rt.STATE.courseConfig = {
       periodoAcademico: (rt.STATE.oasisPeriodo && rt.STATE.oasisPeriodo.descripcion) || '',
+      codPeriodo: (rt.STATE.oasisPeriodo && rt.STATE.oasisPeriodo.codigo) || '',
       facultad: 'SEDE ORELLANA', carrera: '', asignatura: '',
       docente: (rt.STATE.currentUser && rt.STATE.currentUser.name) || '', pao: '', aporte: 'FIN DE CICLO'
     };
@@ -231,8 +232,11 @@ export function registerAuth(rt) {
     rt.fns.updateSidebar();
     rt.fns.navigate(user.role === 'coordinador' ? 'coord-docentes' : 'dashboard');
     rt.fns.showToast('Bienvenido, ' + user.name, 'success');
-    autoLoadPeriodo();
-    rt.fns.hydrateFromDb(); // trae datos persistidos (configs, notas, asignaciones)
+    rt.fns.hydrateFromDb().then(function () {
+      return autoLoadPeriodo();
+    }).catch(function () {
+      return autoLoadPeriodo();
+    });
   }
 
   // Cuenta local (coordinador o docente creado por el coordinador).
@@ -337,18 +341,51 @@ export function registerAuth(rt) {
     }
   }
 
-  async function autoLoadPeriodo() {
-    try {
-      // Reutiliza el período ya consultado a OASIS; si no hay, lo pide al BFF.
-      var p = (rt.STATE.oasisPeriodo && rt.STATE.oasisPeriodo.descripcion) ? rt.STATE.oasisPeriodo : await oasis.getPeriodoActual();
-      if (p && p.descripcion) {
-        rt.STATE.oasisPeriodo = p;
-        if (!rt.STATE.courseConfig.periodoAcademico) rt.STATE.courseConfig.periodoAcademico = p.descripcion;
-        rt.fns.save();
-        var el = document.getElementById('cfg-periodo');
-        if (el && !el.value) el.value = rt.STATE.courseConfig.periodoAcademico || p.descripcion;
+  function syncPeriodoInputs(periodo, message) {
+    var el = document.getElementById('cfg-periodo');
+    if (el && periodo && periodo.descripcion) el.value = periodo.descripcion;
+    var help = document.getElementById('cfg-periodo-help');
+    if (help) {
+      var code = periodo && periodo.codigo ? ' - Codigo ' + periodo.codigo : '';
+      help.textContent = message || ('Periodo vigente sincronizado con OASIS' + code);
+    }
+  }
+
+  function applyPeriodoToActiveConfig(periodo) {
+    if (!periodo) return;
+    if (!rt.STATE.courseConfig) rt.STATE.courseConfig = {};
+    if (periodo.descripcion) rt.STATE.courseConfig.periodoAcademico = periodo.descripcion;
+    if (periodo.codigo) rt.STATE.courseConfig.codPeriodo = periodo.codigo;
+    if (rt.STATE.activeConfigId) {
+      var active = (rt.STATE.savedConfigs || []).find(function (cfg) { return cfg.id === rt.STATE.activeConfigId; });
+      if (active && active.courseConfig) {
+        if (periodo.descripcion) active.courseConfig.periodoAcademico = periodo.descripcion;
+        if (periodo.codigo) active.courseConfig.codPeriodo = periodo.codigo;
       }
-    } catch { /* sin conexión: el período se ingresa manualmente */ }
+    }
+  }
+
+  async function autoLoadPeriodo() {
+    var cached = rt.STATE.oasisPeriodo || null;
+    try {
+      var p = await oasis.getPeriodoActual();
+      if (p && (p.descripcion || p.codigo)) {
+        rt.STATE.oasisPeriodo = p;
+        applyPeriodoToActiveConfig(p);
+        rt.fns.save();
+        syncPeriodoInputs(p, 'Periodo vigente consultado desde OASIS' + (p.codigo ? ' - Codigo ' + p.codigo : ''));
+        if (rt.fns.updateSidebar) rt.fns.updateSidebar();
+        if (rt.STATE.currentPage === 'dashboard' && rt.fns.renderDashboard) rt.fns.renderDashboard();
+        return p;
+      }
+    } catch {
+      if (cached && (cached.descripcion || cached.codigo)) {
+        syncPeriodoInputs(cached, 'Sin conexion con OASIS; usando ultimo periodo guardado' + (cached.codigo ? ' - Codigo ' + cached.codigo : ''));
+        return cached;
+      }
+    }
+    syncPeriodoInputs(null, 'No se pudo consultar el periodo vigente.');
+    return null;
   }
 
   function doLogout() {
@@ -386,8 +423,11 @@ export function registerAuth(rt) {
       await rt.fns.loadVectorCatalog();
       startLoginSessionHeartbeat(user);
       rt.fns.renderDashboard();
-      autoLoadPeriodo();
-      rt.fns.hydrateFromDb();
+      rt.fns.hydrateFromDb().then(function () {
+        return autoLoadPeriodo();
+      }).catch(function () {
+        return autoLoadPeriodo();
+      });
       var mustChange = false;
       try { mustChange = localStorage.getItem(FORCE_PWD_KEY) === user.email; } catch { mustChange = false; }
       if (mustChange) forcePasswordChange(user);

@@ -523,6 +523,27 @@ export function registerGradesScreens(rt) {
   function exportReportPDF() { exportPayloadPDF('report'); }
   function showReportQR() { showExportQR('report'); }
 
+  async function ensureCurrentPeriodoForConfig(config, foundCfg) {
+    var periodo = null;
+    if (rt.fns.autoLoadPeriodo) {
+      try { periodo = await rt.fns.autoLoadPeriodo(); } catch { periodo = null; }
+    }
+    periodo = periodo || rt.STATE.oasisPeriodo || {};
+    if (!config) return periodo;
+    if (periodo.descripcion) {
+      config.periodoAcademico = periodo.descripcion;
+      rt.STATE.courseConfig.periodoAcademico = periodo.descripcion;
+      if (foundCfg && foundCfg.courseConfig) foundCfg.courseConfig.periodoAcademico = periodo.descripcion;
+    }
+    if (periodo.codigo) {
+      config.codPeriodo = periodo.codigo;
+      rt.STATE.courseConfig.codPeriodo = periodo.codigo;
+      if (foundCfg && foundCfg.courseConfig) foundCfg.courseConfig.codPeriodo = periodo.codigo;
+    }
+    rt.fns.save();
+    return periodo;
+  }
+
   // Sincronización con OASIS: agrega nuevos, actualiza datos existentes, conserva calificaciones.
   async function showOasisImport() {
     if (!rt.STATE.activeConfigId) {
@@ -542,6 +563,7 @@ export function registerGradesScreens(rt) {
     try {
       var alumnos, r;
       var foundCfg = rt.STATE.savedConfigs.find(function (cc) { return cc.id === rt.STATE.activeConfigId; });
+      var periodoActual = await ensureCurrentPeriodoForConfig(c, foundCfg);
       var saveCodesToConfigs = function (src) {
         if (!src) return;
         if (src.codCarrera) {
@@ -560,19 +582,25 @@ export function registerGradesScreens(rt) {
           rt.STATE.courseConfig.codParalelo = src.paralelo;
           if (foundCfg) foundCfg.courseConfig.codParalelo = src.paralelo;
         }
-        if (src.codPeriodo) {
-          rt.STATE.courseConfig.codPeriodo = src.codPeriodo;
-          if (foundCfg) foundCfg.courseConfig.codPeriodo = src.codPeriodo;
+        var codPeriodoSrc = src.codPeriodo || (periodoActual && periodoActual.codigo) || '';
+        if (codPeriodoSrc) {
+          rt.STATE.courseConfig.codPeriodo = codPeriodoSrc;
+          if (foundCfg) foundCfg.courseConfig.codPeriodo = codPeriodoSrc;
+        }
+        var periodoDescSrc = src.periodo || src.periodoAcademico || (periodoActual && periodoActual.descripcion) || '';
+        if (periodoDescSrc) {
+          rt.STATE.courseConfig.periodoAcademico = periodoDescSrc;
+          if (foundCfg) foundCfg.courseConfig.periodoAcademico = periodoDescSrc;
         }
         rt.fns.save();
       };
       if (c.codCarrera && c.codMateria && c.codNivel && c.codParalelo) {
-        var codPeriodo = c.codPeriodo || (rt.STATE.oasisPeriodo && rt.STATE.oasisPeriodo.codigo) || '';
+        var codPeriodo = (periodoActual && periodoActual.codigo) || c.codPeriodo || '';
         if (!codPeriodo) {
-          var periodoActual = await oasis.getPeriodoActual();
-          codPeriodo = (periodoActual && periodoActual.codigo) || '';
+          var periodoFallback = await oasis.getPeriodoActual();
+          codPeriodo = (periodoFallback && periodoFallback.codigo) || '';
           if (codPeriodo) {
-            rt.STATE.oasisPeriodo = periodoActual;
+            rt.STATE.oasisPeriodo = periodoFallback;
             c.codPeriodo = codPeriodo;
             saveCodesToConfigs({ codPeriodo: codPeriodo });
           }
@@ -806,13 +834,14 @@ export function registerGradesScreens(rt) {
     var result = { added: 0, updated: 0, unchanged: 0, errors: 0 };
     try {
       var alumnos, r;
+      var periodoActual = await ensureCurrentPeriodoForConfig(c, found);
       if (c.codCarrera && c.codMateria && c.codNivel && c.codParalelo) {
-        var codPeriodo = c.codPeriodo || (rt.STATE.oasisPeriodo && rt.STATE.oasisPeriodo.codigo) || '';
+        var codPeriodo = (periodoActual && periodoActual.codigo) || c.codPeriodo || '';
         if (!codPeriodo) {
-          var periodoActual = await oasis.getPeriodoActual();
-          codPeriodo = (periodoActual && periodoActual.codigo) || '';
+          var periodoFallback = await oasis.getPeriodoActual();
+          codPeriodo = (periodoFallback && periodoFallback.codigo) || '';
           if (codPeriodo) {
-            rt.STATE.oasisPeriodo = periodoActual;
+            rt.STATE.oasisPeriodo = periodoFallback;
             c.codPeriodo = codPeriodo;
             if (paoId === rt.STATE.activeConfigId) rt.STATE.courseConfig.codPeriodo = codPeriodo;
             rt.fns.save();
@@ -832,6 +861,8 @@ export function registerGradesScreens(rt) {
         if (r.codNivel)   { c.codNivel   = r.codNivel;   if (paoId === rt.STATE.activeConfigId) rt.STATE.courseConfig.codNivel = r.codNivel; }
         if (r.paralelo)   { c.codParalelo = r.paralelo;   if (paoId === rt.STATE.activeConfigId) rt.STATE.courseConfig.codParalelo = r.paralelo; }
         if (r.codPeriodo) { c.codPeriodo = r.codPeriodo; if (paoId === rt.STATE.activeConfigId) rt.STATE.courseConfig.codPeriodo = r.codPeriodo; }
+        var periodoDesc = r.periodo || r.periodoAcademico || (periodoActual && periodoActual.descripcion) || '';
+        if (periodoDesc) { c.periodoAcademico = periodoDesc; if (paoId === rt.STATE.activeConfigId) rt.STATE.courseConfig.periodoAcademico = periodoDesc; }
         rt.fns.save();
       }
       if (!alumnos || alumnos.length === 0) return result;

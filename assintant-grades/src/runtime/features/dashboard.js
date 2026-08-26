@@ -20,6 +20,19 @@ export function registerDashboard(rt) {
   var lastStudents = [];
   var lastPie = { approved: 0, failed: 0, noGrade: 0 };
 
+  function studentName(student) {
+    return ((student && student.apellidos) || '') + ' ' + ((student && student.nombres) || '');
+  }
+
+  function buildStudentRanking(students, totals) {
+    return students.map(function (student, idx) {
+      return { student: student, total: totals[idx] || 0 };
+    }).sort(function (a, b) {
+      if (b.total !== a.total) return b.total - a.total;
+      return studentName(a.student).localeCompare(studentName(b.student));
+    });
+  }
+
   function renderDashboard() {
     if (!rt.STATE.activeConfigId) {
       document.getElementById('dash-sub').textContent = 'Seleccione o configure un PAO para comenzar.';
@@ -56,11 +69,17 @@ export function registerDashboard(rt) {
       return '<div class="stat-card animate-in"><div class="stat-row"><div><div class="stat-label">' + item.title + '</div><div class="stat-val" style="color:' + item.color + '">' + item.value + '</div><div class="stat-sub">' + item.sub + '</div></div><div class="stat-icon" style="background:' + item.color + '18">' + getIconSVG(item.icon, item.color) + '</div></div></div>';
     }).join('');
 
-    lastTotals = allTotals;
-    lastStudents = students;
+    var ranking = buildStudentRanking(students, allTotals);
+    var topRanking = ranking.slice(0, 10);
+    var rankedStudents = ranking.map(function (row) { return row.student; });
+    var rankedTotals = ranking.map(function (row) { return row.total; });
+    var topStudents = topRanking.map(function (row) { return row.student; });
+    var topTotals = topRanking.map(function (row) { return row.total; });
+    lastTotals = rankedTotals;
+    lastStudents = rankedStudents;
     lastPie = { approved: approvedCount, failed: failedCount, noGrade: noGradeCount };
     renderDistributionChart(allTotals);
-    renderStudentsChart(students, allTotals);
+    renderStudentsChart(topStudents, topTotals);
     renderPieChart(approvedCount, failedCount, noGradeCount);
     renderComponentProgress();
     renderRecentActivity();
@@ -73,15 +92,21 @@ export function registerDashboard(rt) {
     var raTarget = document.getElementById('dash-ra-summary');
     if (raTarget) raTarget.innerHTML = raSummaryHtml;
 
-    var previewStudents = students.slice(0, 10);
-    var tbodyHtml = previewStudents.map(function (student, idx) {
-      var tot = rt.fns.studentTotal(student.id);
+    var rankingNote = document.getElementById('dash-ranking-note');
+    if (rankingNote) {
+      rankingNote.textContent = students.length
+        ? ('Ordenado por nota final actual - ' + students.length + ' estudiantes sincronizados')
+        : 'Sin estudiantes sincronizados';
+    }
+    var tbodyHtml = topRanking.map(function (row, idx) {
+      var student = row.student;
+      var tot = row.total;
       var passed = tot >= 7;
       var studentPct = pct(tot, maxTotal);
       return '<tr><td style="color:var(--gray-400)">' + (idx + 1) + '</td><td><div style="font-weight:500;font-size:.83rem">' + student.apellidos + ' ' + student.nombres + '</div><div style="font-size:.72rem;color:var(--gray-400);font-family:var(--mono)">' + formatCedula(student.cedula) + '</div></td><td><div style="display:flex;align-items:center;gap:8px"><div class="progress-bar" style="width:60px"><div class="progress-fill" style="width:' + Math.min(studentPct, 100) + '%;background:' + (passed ? 'var(--green)' : 'var(--red)') + '"></div></div><span style="font-weight:700;color:' + (passed ? 'var(--green)' : 'var(--red)') + ';font-size:.83rem">' + fmt(tot) + '</span></div></td><td><span class="badge ' + (passed ? 'badge-green' : 'badge-red') + '">' + (passed ? '✓ Aprobado' : '✗ Reprobado') + '</span></td></tr>';
     }).join('');
     var dashBody = document.getElementById('dash-student-body');
-    if (dashBody) dashBody.innerHTML = tbodyHtml;
+    if (dashBody) dashBody.innerHTML = tbodyHtml || '<tr><td colspan="4" style="text-align:center;color:var(--gray-400);padding:18px">No hay estudiantes sincronizados para el PAO activo.</td></tr>';
   }
 
   function renderDistributionChart(totals) {
